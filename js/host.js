@@ -1,7 +1,7 @@
 // The "TV" screen: creates the room, shows the prompts, runs the game clock and
 // gives The Landlord (the game-master voice) his cues.
 import { api, watchRoom, newToken, store } from "./api.js";
-import { ROUND_INFO, shuffle } from "./prompts.js";
+import { ROUND_INFO, PARTY_GAMES, shuffle } from "./prompts.js";
 import { buildPlan, allIn, expected, quipAnswers, fibOptions, scoreRound, brawlInit, brawlNext, brawlRecord, teeOffers, teeShirts, stiTwists, stiPosts, whitePile, dealHands, cardPlays, discardPlays, fillCard } from "./logic.js";
 import { createGM } from "./gm.js";
 import { loadCards, cardDeck, CARDS_CREDIT } from "./cards.js";
@@ -16,7 +16,10 @@ const CHAMBER_S = 20; // the Drinking Chamber
 const DRAW_S = 90; // minimum time to draw a Tee K.O. shirt
 const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted|Czar's favourite/;
 
-const DEFAULT_SETTINGS = { mode: "party", rounds: 10, target: 7, timer: 45, social: true, filthy: true, voice: true, tvVoice: true };
+const DEFAULT_SETTINGS = {
+  mode: "party", rounds: 10, target: 7, timer: 45, filthy: true, voice: true, tvVoice: true,
+  games: PARTY_GAMES.map((g) => g.type), // Party Mix games picked on the game-picker screen
+};
 const MAX_CARD_ROUNDS = 150; // Cards Against Sobriety ends when someone collects `target` black cards
 // Cards Against Sobriety needs a Czar plus at least two players.
 const minPlayers = (mode) => (mode === "cards" ? 3 : 2);
@@ -67,6 +70,32 @@ export async function startHost(app) {
   // holds each player's hand), so the room's data stays small.
   let deck = null;
   let pile = [];
+  let picking = false; // showing the Party Mix game picker
+
+  // Games that can be played with the current number of players.
+  const playableGames = () => PARTY_GAMES.filter((g) => live.players.length >= (g.min ?? 2));
+
+  // The Party Mix game picker: tap games in or out, then start.
+  function renderPicker() {
+    const n = live.players.length;
+    const chosen = PARTY_GAMES.filter((g) => settings.games.includes(g.type) && n >= (g.min ?? 2)).length;
+    return `<div class="stage picker">
+      <h1>Pick your games</h1>
+      <p class="kicker">Tap to switch games in or out. ${chosen} of ${PARTY_GAMES.length} selected · ${settings.rounds} rounds</p>
+      <div class="row"><button class="btn ghost sm" data-act="pick-all">✅ Select all</button><button class="btn ghost sm" data-act="pick-none">✖ Clear</button>
+        <button class="btn sm" data-act="start" ${chosen ? "" : "disabled"}>Let's go! 🍻</button></div>
+      <div class="game-grid">${PARTY_GAMES.map((g) => {
+        const info = ROUND_INFO[g.type];
+        const tooFew = n < (g.min ?? 2);
+        const on = settings.games.includes(g.type) && !tooFew;
+        return `<button class="game-card ${on ? "on" : ""} ${tooFew ? "off" : ""}" data-act="pick-game" data-val="${g.type}" ${tooFew ? "disabled" : ""}>
+          <span class="game-emoji">${info.emoji}</span><b>${esc(info.title)}</b><span class="game-blurb">${esc(g.blurb)}</span>
+          <span class="game-tick">${tooFew ? `Needs ${g.min}+ players` : on ? "✓ In" : "Out"}</span></button>`;
+      }).join("")}</div>
+      <div class="row"><button class="btn ghost" data-act="pick-back">← Back</button>
+        <button class="btn big" data-act="start" ${chosen ? "" : "disabled"}>Let's go! 🍻</button></div>
+    </div>`;
+  }
 
   async function startGame() {
     const names = live.players.map((p) => p.name);
@@ -75,10 +104,8 @@ export async function startHost(app) {
       deck = cardDeck(await loadCards(), !settings.filthy);
       pile = whitePile(deck.white, seenSet());
     }
-    const types = cards ? ["cards"] : ["quip", "likely", "fib", "wyr", "nhie", "year", "trivia", "roles", "sti"];
-    // The knockout games need at least three players to be worth it.
-    if (!cards && names.length >= 3) types.push("brawl", "tee");
-    if (!cards && settings.social) types.push("social");
+    // Party Mix: the games ticked on the picker (the knockout games need 3+ players).
+    const types = cards ? ["cards"] : playableGames().map((g) => g.type).filter((t) => settings.games.includes(t));
     const plan = buildPlan(cards ? MAX_CARD_ROUNDS : settings.rounds, types, { filthy: settings.filthy, names, seen: seenSet(), cards: deck });
     markSeen(plan.map((r) => r.key));
     await api.reset(code, token);
@@ -345,8 +372,28 @@ export async function startHost(app) {
     try {
       if (act === "start") {
         if (live.players.length < minPlayers(settings.mode)) return toast(`Need at least ${minPlayers(settings.mode)} players!`);
+        // Party Mix: choose the games first.
+        if (settings.mode !== "cards" && !picking) {
+          picking = true;
+          render();
+          return;
+        }
+        if (settings.mode !== "cards" && !playableGames().some((g) => settings.games.includes(g.type))) return toast("Pick at least one game!");
+        picking = false;
         btn.disabled = true;
         await startGame();
+      } else if (act === "pick-game") {
+        const t = btn.dataset.val;
+        settings.games = settings.games.includes(t) ? settings.games.filter((x) => x !== t) : [...settings.games, t];
+        store.set("dg-settings", settings);
+        render();
+      } else if (act === "pick-all" || act === "pick-none") {
+        settings.games = act === "pick-all" ? PARTY_GAMES.map((g) => g.type) : [];
+        store.set("dg-settings", settings);
+        render();
+      } else if (act === "pick-back") {
+        picking = false;
+        render();
       } else if (act === "skip") {
         // Fast-forward whatever is on screen (and shut the Landlord up).
         gm.stop();
@@ -418,6 +465,10 @@ export async function startHost(app) {
 
     switch (room.phase) {
       case "lobby":
+        if (picking) {
+          body = renderPicker();
+          break;
+        }
         body = `<div class="lobby">
           <div class="join-card">
             <div class="logo">Last Orders</div>
@@ -444,7 +495,6 @@ export async function startHost(app) {
               <div class="setting"><span>${settings.mode === "cards" ? "Deck" : "Filth level"}</span>${settings.mode === "cards" ? toggle("filthy", "🔥 Full deck (4,000+ cards)", "😇 Family Edition") : toggle("filthy", "🔥 Filthy", "😇 Mild")}</div>
               <div class="setting"><span>Landlord voice</span>${toggle("voice", "🔊 On")}${settings.voice ? toggle("tvVoice", "📺 TV speaks", "📺 TV silent") : ""}</div>
               ${settings.voice ? `<p class="muted small">${gm.canSpeak() ? "" : "⚠️ This TV browser has no voice. "}No sound from the TV? On one phone, tap <b>🔈 Be the speaker</b> and the Landlord talks through that phone instead (or a Bluetooth speaker connected to it).</p>` : ""}
-              ${settings.mode === "cards" ? "" : `<div class="setting"><span>Social rounds</span>${toggle("social", "On")}</div>`}
             </div>
             <button class="btn big" data-act="start" ${live.players.length < minPlayers(settings.mode) ? "disabled" : ""}>Everybody's in — start! 🍻</button>
             <p class="muted small">Adults only — ${settings.filthy ? "filthy mode is very much not safe for your nan" : "mild mode is safe-ish for your nan"}. Host wants to play too? Join from your phone as well. Drink responsibly — a "sip" can be anything, water counts.</p>

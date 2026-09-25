@@ -11,7 +11,9 @@ text-to-speech and his lines are pre-written in `js/prompts.js`, so there are no
 
 1. On the TV or laptop, open the site and tap **Host on this screen**.
 2. Everyone else scans the QR code (or opens the site) and enters the **4-letter room code** and a name.
-3. Pick the number of rounds and the timer, then hit **start**.
+3. Pick the game, the number of rounds and the timer, then hit **start**. In **Party Mix** a game picker
+   follows: every game with a one-line description — tap to switch games in or out (or **Select all** /
+   **Clear**), then **Let's go**. Your picks are remembered for next time.
 4. During the game the host screen has **Skip ⏭**, **Back to lobby** and **🏁 End game** (finish early and
    jump straight to the final scores).
 5. **No sound from the TV?** Many TV browsers have no speech voices. On any phone tap **🔈 Be the speaker**
@@ -24,7 +26,7 @@ text-to-speech and his lines are pre-written in `js/prompts.js`, so there are no
 
 Pick the **Game** in the lobby:
 
-- **🎉 Party Mix**: a random mix of all the round types below.
+- **🎉 Party Mix**: a random mix of the round types below — choose which ones on the game picker.
 - **🃏 Cards Against Sobriety**: Cards Against Humanity rules with the official cards — 4,369 white and
   957 black from 71 official packs (the **😇 Family Edition** pack in mild mode). Everyone holds **7 white
   cards** on their phone. Each round one player's phone is the **👑 Card Czar** (it passes round the room in

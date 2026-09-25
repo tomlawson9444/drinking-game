@@ -469,6 +469,22 @@ STI_QUESTIONS.push(...EXTRA.stiQuestions);
 STI_CONTEXTS.push(...EXTRA.stiContexts);
 for (const [k, list] of Object.entries(EXTRA.lines)) LINES[k].push(...list);
 
+// The Party Mix games, in the order the game picker shows them, with a one-line description.
+export const PARTY_GAMES = [
+  { type: "quip", blurb: "Everyone fills in the blank; vote for the funniest answer." },
+  { type: "likely", blurb: "Vote for the mate who best fits the prompt. Most votes drinks." },
+  { type: "wyr", blurb: "Pick a side of an impossible choice. The minority drinks." },
+  { type: "nhie", blurb: "Confess on your phone. If you have, you drink." },
+  { type: "fib", blurb: "Invent a fake answer to a weird true fact, then spot the real one." },
+  { type: "year", blurb: "Guess the year something happened. Furthest off drinks." },
+  { type: "trivia", blurb: "Pub quiz question. Get it wrong and face the Drinking Chamber." },
+  { type: "roles", blurb: "Sort your mates into a set — Spice Girls, Only Fools, Friends…" },
+  { type: "sti", blurb: "Answer innocently, then someone reveals where it was 'really posted'." },
+  { type: "brawl", blurb: "Everyone answers, then answers fight in a knockout bracket.", min: 3 },
+  { type: "tee", blurb: "Draw and write slogans on your phone; T-shirts fight to the death.", min: 3 },
+  { type: "social", blurb: "A quick rule for the whole room — waterfalls, categories, thumb master." },
+];
+
 export const ROUND_INFO = {
   likely: { title: "Most Likely To", emoji: "👉", rules: "Vote for the friend who fits best. Most-voted drinks 2. Vote with the crowd for 100 points." },
   nhie: { title: "Never Have I Ever", emoji: "🙊", rules: "Be honest! If you have, drink 1 — but get 50 points for confessing." },
