@@ -25,6 +25,7 @@ export const api = {
     rpc("dg_host_set_state", { p_code: code, p_host_token: hostToken, p_phase: phase, p_round: round, p_state: state }),
   apply: (code, hostToken, deltas) => rpc("dg_host_apply", { p_code: code, p_host_token: hostToken, p_deltas: deltas }),
   reset: (code, hostToken) => rpc("dg_host_reset", { p_code: code, p_host_token: hostToken }),
+  closeRoom: (code, hostToken) => rpc("dg_close_room", { p_code: code, p_host_token: hostToken }),
   kick: (code, hostToken, playerId) => rpc("dg_host_kick", { p_code: code, p_host_token: hostToken, p_player: playerId }),
 
   async room(code) {

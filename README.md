@@ -14,6 +14,8 @@ text-to-speech and his lines are pre-written in `js/prompts.js`, so there are no
 3. Pick the number of rounds and the timer, then hit **start**.
 4. During the game the host screen has **Skip ⏭**, **Back to lobby** and **🏁 End game** (finish early and
    jump straight to the final scores).
+5. **Refreshing the host screen closes the room**: the game is cancelled, everyone is sent back to the start
+   screen, and a fresh room with a new code opens. (**New room** in the lobby does the same.)
 
 ### Round types
 
@@ -41,7 +43,8 @@ Please drink responsibly — a "sip" can be any drink, water included.
   (`dg_create_room`, `dg_join_room`, `dg_submit`, `dg_host_*`) that check the caller's token, so players can't
   edit scores or act as host. Token tables are not readable by the public key at all.
 - The host screen runs the game clock: it advances phases, scores each round and writes results back.
-- Rooms idle for 12 hours are deleted automatically when a new room is created.
+- Rooms idle for 12 hours are deleted automatically when a new room is created, and a host screen closes its
+  previous room (`dg_close_room`) whenever it loads.
 - **The Landlord** picks a line from `LINES` in `js/prompts.js` for each moment, fills in the relevant
   player's name, speaks it with the browser's speech synthesis (a British voice when available) and shows
   it as a caption. Toggle the voice from the lobby or the 🔊 button.

@@ -33,7 +33,7 @@ export function startPlayer(app, me, onLeave) {
     else if (act === "have") send("input", { have: val === "1" });
     else if (act === "choice") send("input", { choice: +val });
     else if (act === "vote") send("vote", { target: val });
-    else if (act === "leave" && confirm("Leave this game?")) {
+    else if (act === "leave" && (!live.room || !live.players.some((p) => p.id === playerId) || confirm("Leave this game?"))) {
       store.del("dg-player");
       watcher.stop();
       onLeave();
@@ -57,7 +57,10 @@ export function startPlayer(app, me, onLeave) {
     const room = live.room;
     const self = live.players.find((p) => p.id === playerId);
     if (room === null && live.players.length === 0 && lastSig) {
-      app.innerHTML = `<div class="phone center"><h2>This room has closed.</h2><button class="btn" data-act="leave">Back</button></div>`;
+      store.del("dg-player");
+      app.innerHTML = `<div class="phone center"><div class="big-emoji">🚪</div><h2>Game over — this room has closed.</h2>
+        <p class="muted">The host started a fresh room. Ask for the new code to join again.</p>
+        <button class="btn" data-act="leave">Back to start</button></div>`;
       return;
     }
     if (!room) {

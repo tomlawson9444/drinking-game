@@ -15,18 +15,14 @@ const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Foo
 const DEFAULT_SETTINGS = { rounds: 10, timer: 45, social: true, filthy: true, voice: true };
 
 export async function startHost(app) {
-  let session = store.get("dg-host");
-  if (session) {
-    const room = await api.room(session.code).catch(() => null);
-    if (!room) session = null;
-  }
-  if (!session) {
-    const token = newToken();
-    const code = await api.createRoom(token);
-    session = { code, token };
-    store.set("dg-host", session);
-  }
-  const { code, token } = session;
+  // Every load of the host screen (including a refresh) starts a fresh room. The previous
+  // room is closed, which cancels its game and sends everyone in it back to the start.
+  const old = store.get("dg-host");
+  if (old) await api.closeRoom(old.code, old.token).catch(() => {});
+  store.del("dg-host");
+  const token = newToken();
+  const code = await api.createRoom(token);
+  store.set("dg-host", { code, token });
   history.replaceState(null, "", `?host=${code}`);
 
   let live = { room: null, players: [], subs: [] };
@@ -224,8 +220,8 @@ export async function startHost(app) {
         gm.stop();
         await api.reset(code, token);
       } else if (act === "new-room") {
-        store.del("dg-host");
-        location.href = location.pathname + "?host";
+        if (!confirm("Close this room and start a new one? Everyone will need the new code.")) return;
+        location.href = location.pathname + "?host"; // loading the host screen closes this room
       } else if (act === "kick") {
         const p = live.players.find((x) => x.id === btn.dataset.id);
         if (p && confirm(`Kick ${p.name}?`)) await api.kick(code, token, p.id);

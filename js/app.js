@@ -60,9 +60,6 @@ async function boot() {
   }
   try {
     if (params.has("host")) {
-      const want = params.get("host");
-      const saved = store.get("dg-host");
-      if (want && saved && saved.code !== want) toast("That room belongs to another screen — starting a new one.");
       await startHost(app);
       return;
     }
