@@ -3,9 +3,9 @@
 A Jackbox-style party drinking game for you and your mates. One big screen (TV / laptop) hosts,
 everyone plays on their phone in the browser — no app, no accounts. **18+ only.**
 
-Hosted by **The Landlord**, an AI game master (Claude) who reads out every prompt, roasts you by name
-after each round in a deadpan British one-liner style, and writes custom prompts about your group before
-the game starts. Turn the TV volume up.
+Hosted by **The Landlord**, a deadpan British game-master voice who reads out every prompt and roasts
+you by name after each round. Turn the TV volume up. (He's free: the voice is your browser's built-in
+text-to-speech and his lines are pre-written in `js/prompts.js`, so there are no API keys or costs.)
 
 ## How to play
 
@@ -40,11 +40,9 @@ Please drink responsibly — a "sip" can be any drink, water included.
   edit scores or act as host. Token tables are not readable by the public key at all.
 - The host screen runs the game clock: it advances phases, scores each round and writes results back.
 - Rooms idle for 12 hours are deleted automatically when a new room is created.
-- **The Landlord** lives in the `game-master` Supabase Edge Function, which holds the Anthropic API key —
-  it is never sent to browsers. Only a room's host (proved by the host token) can call it, capped at 150
-  calls per room. Lines are spoken with the browser's built-in text-to-speech (a British voice when
-  available) and shown as captions. If the key isn't set, or Claude is unavailable, the game falls back to
-  built-in lines and prompts.
+- **The Landlord** picks a line from `LINES` in `js/prompts.js` for each moment, fills in the relevant
+  player's name, speaks it with the browser's speech synthesis (a British voice when available) and shows
+  it as a caption. Toggle the voice from the lobby or the 🔊 button.
 
 ```
 index.html          entry point
@@ -54,26 +52,22 @@ js/app.js           home screen + routing
 js/host.js          big-screen host and game engine
 js/player.js        phone controller
 js/logic.js         round plan + scoring rules (pure, testable)
-js/gm.js            The Landlord: voice-over + calls to the game-master function
-js/prompts.js       prompt decks (mild + filthy) — add your own in-jokes!
+js/gm.js            The Landlord: voice-over + captions
+js/prompts.js       prompt decks (mild + filthy) and the Landlord's lines — add your own in-jokes!
 supabase/migrations database schema, RLS and RPC functions
-supabase/functions/game-master   Edge Function that calls Claude
 ```
 
 ## Setup
 
 1. Create a Supabase project and run the files in `supabase/migrations/` in order in the SQL editor.
 2. Put the project URL and publishable (anon) key in `js/config.js`.
-3. Deploy the AI host: `supabase functions deploy game-master --no-verify-jwt` (it does its own host-token
-   check), then add your Anthropic key as a secret — either `supabase secrets set ANTHROPIC_API_KEY=sk-ant-...`
-   or **Supabase dashboard → Edge Functions → Secrets → Add `ANTHROPIC_API_KEY`**. Never put the key in
-   `js/config.js` or anywhere in this repo.
-4. In GitHub: **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)`**.
-5. Open `https://<your-user>.github.io/drinking-game/`.
+3. In GitHub: **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)`**.
+4. Open `https://<your-user>.github.io/drinking-game/`.
 
 To run locally: `python3 -m http.server` in this folder and open http://localhost:8000.
 
 ## Adding prompts
 
 Edit the arrays in `js/prompts.js`. Quip prompts use `___` for the blank; Would You Rather entries are
-`["option A", "option B"]` pairs.
+`["option A", "option B"]` pairs. Add Landlord lines to `LINES`; `{name}`-style blanks are filled with
+player names, and a line is only used when all its blanks can be filled.

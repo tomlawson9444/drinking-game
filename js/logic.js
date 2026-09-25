@@ -4,21 +4,12 @@ import { MILD, FILTHY, FIBS, shuffle } from "./prompts.js";
 
 const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, social: 1 };
 
-// opts: { filthy, names: [player names], ai: {quip, likely, nhie, wyr} (optional AI-written prompts) }
+// opts: { filthy, names: [player names] }
 export function buildPlan(rounds, types, opts = {}) {
   const base = opts.filthy ? FILTHY : MILD;
-  const source = (t) => {
-    if (t === "fib") return FIBS;
-    const ai = opts.ai?.[t] ?? [];
-    return ai.length ? [...ai, ...base[t]] : base[t];
-  };
   const decks = {};
   const draw = (t) => {
-    // AI prompts go first (they're personalised), the rest shuffled behind them.
-    if (!decks[t]?.length) {
-      const ai = (opts.ai?.[t] ?? []).slice();
-      decks[t] = [...shuffle(source(t).slice(ai.length)), ...shuffle(ai)];
-    }
+    if (!decks[t]?.length) decks[t] = shuffle(t === "fib" ? FIBS : base[t]);
     return decks[t].pop();
   };
   const names = opts.names?.length ? opts.names : ["someone"];
@@ -193,44 +184,4 @@ export function scoreRound(round, players, subs) {
       break;
   }
   return { deltas, view };
-}
-
-// Plain-English summary of a round for the AI host to riff on.
-export function describeRound(round, players, deltas) {
-  const name = (id) => players.find((p) => p.id === id)?.name ?? "someone";
-  const names = (ids) => (ids?.length ? ids.map(name).join(", ") : "nobody");
-  const v = round.view ?? {};
-  const lines = [];
-  switch (round.type) {
-    case "likely":
-      lines.push(`Most Likely To: "${round.prompt}"`);
-      (v.tally ?? []).forEach((t) => lines.push(`${name(t.pid)} got ${t.voters.length} vote(s) from ${names(t.voters)}`));
-      break;
-    case "nhie":
-      lines.push(`Never Have I Ever: "${round.prompt}"`, `Admitted they HAVE: ${names(v.have)}`, `Claimed they never have: ${names(v.never)}`);
-      break;
-    case "wyr":
-      lines.push(`Would You Rather: "${round.prompt[0]}" (${names(v.sides?.[0])}) OR "${round.prompt[1]}" (${names(v.sides?.[1])})`);
-      break;
-    case "quip":
-      lines.push(`Fill-in-the-blank: "${round.prompt}"`);
-      (v.results ?? []).forEach((a) => lines.push(`${name(a.pid)} wrote "${a.text}" and got ${a.voters.length} vote(s)`));
-      break;
-    case "fib":
-      lines.push(`Lie Detector: "${round.prompt}" The true answer was "${round.truth}".`);
-      (v.options ?? []).filter((o) => !o.truth).forEach((o) => lines.push(`${names(o.pids)} lied "${o.text}" and fooled ${names(o.pickers)}`));
-      lines.push(`Found the truth: ${names((v.options ?? []).find((o) => o.truth)?.pickers)}`);
-      break;
-  }
-  if (v.slowpokes?.length) lines.push(`Too slow to answer: ${names(v.slowpokes)}`);
-  const drinkers = Object.entries(deltas ?? {}).filter(([, d]) => d.sips > 0);
-  lines.push(`Drinking now: ${drinkers.length ? drinkers.map(([id, d]) => `${name(id)} (${d.sips} sips)`).join(", ") : "nobody"}`);
-  return lines.join("\n");
-}
-
-export function describeStandings(players) {
-  return [...players]
-    .sort((a, b) => b.score - a.score)
-    .map((p, i) => `${i + 1}. ${p.name}: ${p.score} pts, ${p.sips} sips drunk`)
-    .join("\n");
 }

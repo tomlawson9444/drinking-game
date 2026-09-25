@@ -1,8 +1,8 @@
 // The "TV" screen: creates the room, shows the prompts, runs the game clock and
 // gives The Landlord (the game-master voice) his cues.
 import { api, watchRoom, newToken, store } from "./api.js";
-import { ROUND_INFO } from "./prompts.js";
-import { buildPlan, allIn, quipAnswers, fibOptions, scoreRound, describeRound, describeStandings } from "./logic.js";
+import { ROUND_INFO, shuffle } from "./prompts.js";
+import { buildPlan, allIn, quipAnswers, fibOptions, scoreRound } from "./logic.js";
 import { createGM } from "./gm.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast } from "./ui.js";
 
@@ -12,7 +12,7 @@ const SCORES_MS = 6000;
 const MAX_HOLD_MS = 30000; // longest we'll wait for the Landlord to finish talking
 const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone/;
 
-const DEFAULT_SETTINGS = { rounds: 10, timer: 45, social: true, filthy: true, voice: true, ai: true };
+const DEFAULT_SETTINGS = { rounds: 10, timer: 45, social: true, filthy: true, voice: true };
 
 export async function startHost(app) {
   let session = store.get("dg-host");
@@ -31,7 +31,6 @@ export async function startHost(app) {
 
   let live = { room: null, players: [], subs: [] };
   let busy = false;
-  let preparing = false;
   let watcher = null;
   const scored = new Set(); // rounds whose points/sips were already applied
   const settings = { ...DEFAULT_SETTINGS, ...store.get("dg-settings") };
@@ -39,10 +38,7 @@ export async function startHost(app) {
   const caption = $("#gm");
   let captionTimer = null;
   const gm = createGM({
-    code,
-    hostToken: token,
     settings,
-    onNotice: toast,
     onCaption(text) {
       caption.innerHTML = `<span class="gm-name">🎙️ The Landlord</span><span class="gm-text">${esc(text)}</span>`;
       caption.classList.add("show");
@@ -61,22 +57,13 @@ export async function startHost(app) {
 
   async function startGame() {
     const names = live.players.map((p) => p.name);
-    preparing = true;
-    render();
-    try {
-      // The welcome roast plays while Claude writes tonight's personalised prompts.
-      const welcome = gm.line("welcome", `Players tonight: ${names.join(", ")}. ${settings.rounds} rounds.`);
-      const ai = settings.ai ? await gm.prompts(names) : null;
-      const types = ["quip", "likely", "fib", "wyr", "nhie", ...(settings.social ? ["social"] : [])];
-      const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, names, ai });
-      await api.reset(code, token);
-      scored.clear();
-      await welcome;
-      preparing = false;
-      await beginRound({ plan, settings: { ...settings }, idx: 0 }, 1);
-    } finally {
-      preparing = false;
-    }
+    const types = ["quip", "likely", "fib", "wyr", "nhie", ...(settings.social ? ["social"] : [])];
+    const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, names });
+    await api.reset(code, token);
+    scored.clear();
+    const [name, other] = shuffle(names);
+    gm.line("welcome", { name, other });
+    await beginRound({ plan, settings: { ...settings }, idx: 0 }, 1);
   }
 
   async function beginRound(base, roundNo) {
@@ -166,14 +153,50 @@ export async function startHost(app) {
         break;
       case "reveal":
         if (cur.type === "social") gm.say(cur.prompt, { caption: false });
-        else gm.line("reveal", `${describeRound(cur, live.players, cur.deltas)}\n\nStandings:\n${describeStandings(live.players)}`);
+        else roastRound(cur);
         break;
       case "final": {
+        const ranked = [...live.players].sort((a, b) => b.score - a.score);
         const thirsty = [...live.players].sort((a, b) => b.sips - a.sips)[0];
-        gm.line("final", `Final standings:\n${describeStandings(live.players)}\nDrank the most: ${thirsty?.name ?? "nobody"}`);
+        const last = ranked.length > 1 ? ranked[ranked.length - 1] : null;
+        gm.line("final", { winner: ranked[0]?.name, thirsty: thirsty?.sips ? thirsty.name : null, last: last?.name });
         break;
       }
     }
+  }
+
+  // The Landlord's reaction to a round: roast the most relevant person, falling back
+  // to anyone who's drinking, then to a generic line.
+  function roastRound(cur) {
+    const nameOf = (id) => live.players.find((p) => p.id === id)?.name;
+    const any = (ids) => shuffle((ids ?? []).map(nameOf).filter(Boolean))[0];
+    const v = cur.view ?? {};
+    const deltas = Object.entries(cur.deltas ?? {});
+    const drinking = (why) => deltas.filter(([, d]) => d.sips > 0 && (!why || d.why.includes(why))).map(([id]) => id);
+    let key = cur.type;
+    let vars = {};
+    switch (cur.type) {
+      case "likely":
+        vars = { name: any(v.losers) };
+        break;
+      case "nhie":
+        if (!v.have?.length) key = "nhie_none";
+        vars = { name: any(v.have) };
+        break;
+      case "wyr":
+        if (v.tie) key = "wyr_tie";
+        vars = { name: any(drinking("In the minority")) };
+        break;
+      case "quip":
+        vars = { winner: any((v.results ?? []).filter((a) => a.winner).map((a) => a.pid)), name: any(drinking("Zero votes")) };
+        break;
+      case "fib": {
+        const fooled = shuffle((v.options ?? []).filter((o) => !o.truth && o.pickers.length))[0];
+        vars = { liar: any(fooled?.pids), name: any(fooled?.pickers) };
+        break;
+      }
+    }
+    gm.line(key, vars) ?? gm.line("drink", { name: any(drinking()) }) ?? gm.line("none");
   }
 
   // Host controls
@@ -205,7 +228,7 @@ export async function startHost(app) {
         settings[act] = +btn.dataset.val;
         store.set("dg-settings", settings);
         render();
-      } else if (["social", "filthy", "voice", "ai"].includes(act)) {
+      } else if (["social", "filthy", "voice"].includes(act)) {
         settings[act] = !settings[act];
         store.set("dg-settings", settings);
         if (act === "voice" && settings.voice) gm.say("Testing. One, two. Can the cheap seats hear me?");
@@ -245,10 +268,7 @@ export async function startHost(app) {
 
     switch (room.phase) {
       case "lobby":
-        body = preparing
-          ? `<div class="intro pop"><div class="intro-emoji wobble">🎙️</div><h1>Pouring the first round…</h1>
-              <p class="rules">${settings.ai ? "The Landlord is writing tonight's material about you lot." : "Get your drinks ready."}</p><div class="spinner"></div></div>`
-          : `<div class="lobby">
+        body = `<div class="lobby">
           <div class="join-card">
             <div class="logo">Last Orders</div>
             <p class="tag">The party drinking game. Grab your phones!</p>
@@ -265,8 +285,7 @@ export async function startHost(app) {
               <div class="setting"><span>Rounds</span>${[6, 10, 15, 20].map((n) => `<button class="pill ${settings.rounds === n ? "on" : ""}" data-act="rounds" data-val="${n}">${n}</button>`).join("")}</div>
               <div class="setting"><span>Timer</span>${[30, 45, 60, 90].map((n) => `<button class="pill ${settings.timer === n ? "on" : ""}" data-act="timer" data-val="${n}">${n}s</button>`).join("")}</div>
               <div class="setting"><span>Filth level</span>${toggle("filthy", "🔥 Filthy", "😇 Mild")}</div>
-              <div class="setting"><span>AI Landlord</span>${toggle("ai", "🎙️ On")}<span class="muted small">roasts you & writes custom prompts</span></div>
-              <div class="setting"><span>Voice-over</span>${toggle("voice", "🔊 On")}</div>
+              <div class="setting"><span>Landlord voice</span>${toggle("voice", "🔊 On")}</div>
               <div class="setting"><span>Social rounds</span>${toggle("social", "On")}</div>
             </div>
             <button class="btn big" data-act="start" ${live.players.length < 2 ? "disabled" : ""}>Everybody's in — start! 🍻</button>

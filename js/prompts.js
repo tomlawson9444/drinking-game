@@ -218,21 +218,67 @@ export const FIBS = [
 
 // ------------------------------------------------------------------ host lines
 
-// Used when the AI host is off or unavailable.
-export const CANNED = {
+// What The Landlord says. {name}, {winner}, {liar}, {thirsty}, {last} and {other} are
+// filled with player names; a line is only used when all of its blanks can be filled.
+export const LINES = {
   welcome: [
-    "Welcome to Last Orders. I'm the Landlord. Tonight you'll drink, you'll lie, and you'll find out what your friends really think of you. Mostly the drinking.",
+    "Welcome to Last Orders. I'm the Landlord. Tonight you'll drink, you'll lie, and you'll find out what your friends really think of you.",
+    "Evening. I see {name} made it. Brave. Given everything.",
+    "Welcome, welcome. {name}, {other}, lovely to see you. Well. To see you.",
+    "Right, you lot. Phones out, standards down. {name}, you've done that already. Good.",
+    "Welcome to Last Orders. The rules are simple: answer honestly, drink when told, and don't make eye contact with {name}.",
   ],
-  reveal: [
-    "Drink up. It won't make you any funnier, but it'll make everyone else seem funnier.",
-    "Some of you are drinking to forget. The rest of us will remember that answer forever.",
+  likely: [
+    "{name}. The group has spoken, and frankly, the group is right.",
+    "{name}, it wasn't even close. Your friends have known this about you for years.",
+    "Congratulations {name}. Unanimous-ish. Drink, and have a little think about your life.",
+    "{name}. Nobody was surprised. Least of all {name}.",
+  ],
+  nhie: [
+    "{name}, drink. And we'll be discussing that later.",
+    "Look at {name}, drinking. Not even a flicker of shame. Impressive.",
+    "{name} has. Of course {name} has.",
+    "Honesty is a virtue, {name}. Unfortunately so is not doing that in the first place.",
+  ],
+  nhie_none: [
+    "Nobody? Nobody at all? Right. I'll just assume you're all liars and move on.",
+    "Not one of you. A room full of saints. Or cowards. Mostly cowards.",
+  ],
+  wyr: [
+    "{name}, you picked that. Out loud. In front of people. Drink.",
+    "Interesting choice, {name}. Wrong, but interesting.",
+    "{name} is in the minority, which is a lovely way of saying everyone thinks you're weird.",
+  ],
+  wyr_tie: [
+    "A perfect split. You're all as bad as each other. Everybody drinks.",
+  ],
+  quip: [
+    "{winner} takes it. Genuinely funny. I'm as shocked as you are.",
+    "The crowd loves {winner}. The crowd has also been drinking, so let's not get carried away.",
+    "{name}, not a single vote. Not even a pity vote. Drink up.",
+    "{name}, zero votes. Your answer was so bad even you didn't vote for it. You couldn't, but still.",
+  ],
+  fib: [
+    "{name}, you got fooled by {liar}. Which, if we're honest, isn't the first time someone's lied to you tonight.",
+    "{liar} lied, and {name} swallowed it. Story of {name}'s love life.",
+    "Beautiful lying from {liar}. Should be in politics. Or prison. Often both.",
+    "{name} fell for it. Drink, and never buy a used car.",
+  ],
+  drink: [
+    "{name}, drink. You know what you did.",
+    "{name}, get it down you. Your liver's seen worse. Mostly from you.",
+    "Drink up, {name}. It won't make you any funnier, but it'll make everyone else seem funnier.",
+    "{name}. Drink. Don't make me say it twice. Actually I will, it's the only fun I get. Drink.",
+  ],
+  none: [
+    "Nobody drinks? That's not a drinking game, that's a book club.",
     "Well. That's going in the group chat.",
-    "I've seen better decisions made at a kebab shop at four in the morning.",
-    "Drink. Your liver has seen worse. Probably from you.",
     "Remarkable. Not good. Just remarkable.",
   ],
   final: [
-    "That's the game. The winner gets bragging rights. The losers get a hangover. Everyone gets a slightly lower opinion of each other.",
+    "That's the game. {winner} wins. Enjoy it, {winner}, it's the most anyone's ever rated you. {thirsty} drank the most, and {last} came last, which feels about right.",
+    "Your winner is {winner}. Take a bow. Not too low, you'll fall over. {thirsty}, you drank the most. Have some water. And maybe a word with yourself.",
+    "{winner} wins. {last} loses. {thirsty} is drunk. Same time next week?",
   ],
 };
 
