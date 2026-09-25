@@ -4,6 +4,7 @@ import { api, watchRoom, newToken, store } from "./api.js";
 import { ROUND_INFO, shuffle } from "./prompts.js";
 import { buildPlan, allIn, expected, quipAnswers, fibOptions, scoreRound, brawlInit, brawlNext, brawlRecord, teeOffers, teeShirts, stiTwists, stiPosts, whitePile, dealHands, cardPlays, discardPlays, fillCard } from "./logic.js";
 import { createGM } from "./gm.js";
+import { loadCards, cardDeck, CARDS_CREDIT } from "./cards.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf } from "./ui.js";
 
 const INTRO_MS = 5000;
@@ -15,7 +16,8 @@ const CHAMBER_S = 20; // the Drinking Chamber
 const DRAW_S = 90; // minimum time to draw a Tee K.O. shirt
 const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted|Czar's favourite/;
 
-const DEFAULT_SETTINGS = { mode: "party", rounds: 10, timer: 45, social: true, filthy: true, dark: false, voice: true, tvVoice: true };
+const DEFAULT_SETTINGS = { mode: "party", rounds: 10, target: 7, timer: 45, social: true, filthy: true, voice: true, tvVoice: true };
+const MAX_CARD_ROUNDS = 150; // Cards Against Sobriety ends when someone collects `target` black cards
 // Cards Against Sobriety needs a Czar plus at least two players.
 const minPlayers = (mode) => (mode === "cards" ? 3 : 2);
 
@@ -61,20 +63,29 @@ export async function startHost(app) {
   const seenSet = () => new Set(store.get("dg-seen") ?? []);
   const markSeen = (keys) => store.set("dg-seen", [...(store.get("dg-seen") ?? []), ...keys.filter(Boolean)].slice(-5000));
 
+  // Cards Against Sobriety: the deck and the draw pile live on this screen only (the room just
+  // holds each player's hand), so the room's data stays small.
+  let deck = null;
+  let pile = [];
+
   async function startGame() {
     const names = live.players.map((p) => p.name);
     const cards = settings.mode === "cards";
+    if (cards) {
+      deck = cardDeck(await loadCards(), !settings.filthy);
+      pile = whitePile(deck.white, seenSet());
+    }
     const types = cards ? ["cards"] : ["quip", "likely", "fib", "wyr", "nhie", "year", "trivia", "roles", "sti"];
     // The knockout games need at least three players to be worth it.
     if (!cards && names.length >= 3) types.push("brawl", "tee");
     if (!cards && settings.social) types.push("social");
-    const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, dark: settings.filthy && settings.dark, names, seen: seenSet() });
+    const plan = buildPlan(cards ? MAX_CARD_ROUNDS : settings.rounds, types, { filthy: settings.filthy, names, seen: seenSet(), cards: deck });
     markSeen(plan.map((r) => r.key));
     await api.reset(code, token);
     scored.clear();
     const [name, other] = shuffle(names);
     gm.line("welcome", { name, other });
-    const extra = cards ? { hands: {}, pile: whitePile(settings.filthy, seenSet(), settings.filthy && settings.dark) } : {};
+    const extra = cards ? { hands: {}, won: {} } : {};
     await beginRound({ plan, settings: { ...settings }, idx: 0, ...extra }, 1);
   }
 
@@ -82,10 +93,13 @@ export async function startHost(app) {
     const r = base.plan[base.idx];
     if (r.type === "cards") {
       // Top up everyone's hand, and pass the Czar round the room in joining order.
-      const { hands, pile } = dealHands(base.hands, base.pile, live.players, base.settings.filthy, base.settings.filthy && base.settings.dark);
-      markSeen(base.pile.slice(0, base.pile.length - pile.length));
+      if (!deck) deck = cardDeck(await loadCards(), !base.settings.filthy);
+      const dealt = dealHands(base.hands, pile, live.players, () => whitePile(deck.white));
+      markSeen(pile.slice(0, pile.length - dealt.pile.length));
+      pile = dealt.pile;
+      const hands = dealt.hands;
       const czar = live.players[base.idx % live.players.length]?.id;
-      await set("intro", roundNo, { ...base, hands, pile, cur: { ...r, czar }, until: Date.now() + INTRO_MS });
+      await set("intro", roundNo, { ...base, hands, cur: { ...r, czar }, until: Date.now() + INTRO_MS });
       return;
     }
     await set("intro", roundNo, { ...base, cur: { ...r }, until: Date.now() + INTRO_MS });
@@ -194,6 +208,8 @@ export async function startHost(app) {
   async function reveal(room, st, cur) {
     if (cur.type === "cards") st = { ...st, hands: discardPlays(st.hands, cur.plays) };
     const { deltas, view } = scoreRound(cur, live.players, live.subs);
+    // The Czar's favourite collects the black card.
+    if (cur.type === "cards" && view.win) st = { ...st, won: { ...st.won, [view.win]: [...(st.won?.[view.win] ?? []), cur.prompt] } };
     const list = Object.entries(deltas).map(([id, d]) => ({ id, score: d.score, sips: d.sips }));
     if (list.length && !scored.has(room.round)) await api.apply(code, token, list);
     scored.add(room.round);
@@ -202,8 +218,10 @@ export async function startHost(app) {
 
   async function next(room, st) {
     const idx = st.idx + 1;
-    if (idx >= st.plan.length) await set("final", room.round, { ...st });
-    else await beginRound({ plan: st.plan, settings: st.settings, idx, hands: st.hands, pile: st.pile }, room.round + 1);
+    // Cards Against Sobriety: first to the target number of black cards wins.
+    const champ = st.won && Object.values(st.won).some((cards) => cards.length >= (st.settings.target ?? 7));
+    if (idx >= st.plan.length || champ) await set("final", room.round, { ...st });
+    else await beginRound({ plan: st.plan, settings: st.settings, idx, hands: st.hands, won: st.won }, room.round + 1);
   }
 
   // The Landlord's cues, fired once per phase change.
@@ -353,11 +371,11 @@ export async function startHost(app) {
         settings.mode = btn.dataset.val;
         store.set("dg-settings", settings);
         render();
-      } else if (act === "rounds" || act === "timer") {
+      } else if (act === "rounds" || act === "timer" || act === "target") {
         settings[act] = +btn.dataset.val;
         store.set("dg-settings", settings);
         render();
-      } else if (["social", "filthy", "dark", "voice", "tvVoice"].includes(act)) {
+      } else if (["social", "filthy", "voice", "tvVoice"].includes(act)) {
         settings[act] = !settings[act];
         store.set("dg-settings", settings);
         if ((act === "voice" || act === "tvVoice") && settings.voice) gm.say("Testing. One, two. Can the cheap seats hear me?");
@@ -386,7 +404,9 @@ export async function startHost(app) {
     const header = `<header class="host-head">
         <div class="logo sm">Last Orders</div>
         <div class="roomcode">Join at <b>${esc(location.host + location.pathname)}</b> · code <b class="code">${code}</b></div>
-        ${room.phase !== "lobby" ? `<div class="round-no">Round ${st.idx + 1}/${st.plan?.length ?? "?"}</div>` : ""}
+        ${room.phase === "lobby" ? "" : st.settings?.mode === "cards"
+          ? `<div class="round-no">Round ${st.idx + 1} · first to ${st.settings.target ?? 7} 🃏</div>`
+          : `<div class="round-no">Round ${st.idx + 1}/${st.plan?.length ?? "?"}</div>`}
       </header>`;
     const controls = room.phase === "lobby" ? "" : `<footer class="host-foot">
         <button class="btn ghost sm" data-act="voice">${settings.voice ? "🔊 Voice on" : "🔇 Voice off"}</button>
@@ -416,10 +436,12 @@ export async function startHost(app) {
               <div class="setting"><span>Game</span>
                 <button class="pill ${settings.mode !== "cards" ? "on" : ""}" data-act="mode" data-val="party">🎉 Party Mix</button>
                 <button class="pill ${settings.mode === "cards" ? "on" : ""}" data-act="mode" data-val="cards">🃏 Cards Against Sobriety</button></div>
-              ${settings.mode === "cards" ? `<p class="muted small">Everyone gets 7 cards on their phone. Each round one player's phone is the 👑 Card Czar and picks the winner — the Czar passes round the room. Needs 3+ players.</p>` : ""}
-              <div class="setting"><span>Rounds</span>${[6, 10, 15, 20].map((n) => `<button class="pill ${settings.rounds === n ? "on" : ""}" data-act="rounds" data-val="${n}">${n}</button>`).join("")}</div>
+              ${settings.mode === "cards" ? `<p class="muted small">Everyone holds 7 white cards on their phone. Each round one player's phone is the 👑 Card Czar (it passes round the room). Play a card, draw back up to 7. The Czar's favourite wins the black card — first to ${settings.target} black cards wins. Needs 3+ players.<br>${esc(CARDS_CREDIT)}</p>` : ""}
+              ${settings.mode === "cards"
+                ? `<div class="setting"><span>First to</span>${[5, 7, 10].map((n) => `<button class="pill ${settings.target === n ? "on" : ""}" data-act="target" data-val="${n}">${n} 🃏</button>`).join("")}</div>`
+                : `<div class="setting"><span>Rounds</span>${[6, 10, 15, 20].map((n) => `<button class="pill ${settings.rounds === n ? "on" : ""}" data-act="rounds" data-val="${n}">${n}</button>`).join("")}</div>`}
               <div class="setting"><span>Timer</span>${[30, 45, 60, 90].map((n) => `<button class="pill ${settings.timer === n ? "on" : ""}" data-act="timer" data-val="${n}">${n}s</button>`).join("")}</div>
-              <div class="setting"><span>Filth level</span>${toggle("filthy", "🔥 Filthy", "😇 Mild")}${settings.filthy && settings.mode === "cards" ? toggle("dark", "💀 Dark humour", "💀 Dark: off") : ""}</div>
+              <div class="setting"><span>${settings.mode === "cards" ? "Deck" : "Filth level"}</span>${settings.mode === "cards" ? toggle("filthy", "🔥 Full deck (4,000+ cards)", "😇 Family Edition") : toggle("filthy", "🔥 Filthy", "😇 Mild")}</div>
               <div class="setting"><span>Landlord voice</span>${toggle("voice", "🔊 On")}${settings.voice ? toggle("tvVoice", "📺 TV speaks", "📺 TV silent") : ""}</div>
               ${settings.voice ? `<p class="muted small">${gm.canSpeak() ? "" : "⚠️ This TV browser has no voice. "}No sound from the TV? On one phone, tap <b>🔈 Be the speaker</b> and the Landlord talks through that phone instead (or a Bluetooth speaker connected to it).</p>` : ""}
               ${settings.mode === "cards" ? "" : `<div class="setting"><span>Social rounds</span>${toggle("social", "On")}</div>`}
@@ -461,17 +483,20 @@ export async function startHost(app) {
 
       case "scores":
       case "final": {
-        const ranked = [...live.players].sort((a, b) => b.score - a.score);
+        const cardsGame = st.settings?.mode === "cards";
+        const wins = (p) => (cardsGame ? st.won?.[p.id]?.length ?? 0 : p.score);
+        const ranked = [...live.players].sort((a, b) => wins(b) - wins(a));
         const thirsty = [...live.players].sort((a, b) => b.sips - a.sips)[0];
         const final = room.phase === "final";
-        const winners = ranked.filter((p) => ranked[0] && p.score === ranked[0].score);
+        const winners = ranked.filter((p) => ranked[0] && wins(p) === wins(ranked[0]));
         body = `<div class="stage">
           <h1>${final ? "🏆 Final scores 🏆" : "Leaderboard"}</h1>
           ${final && winners.length ? `<div class="winner pop"><div class="row">${winners.map((p) => avatar(p, "xl")).join("")}</div>
             <div><b>${winners.map((p) => esc(p.name)).join(" & ")}</b> win${winners.length === 1 ? "s" : ""}!</div></div>` : ""}
           <ol class="board">${ranked.map((p, i) => `<li class="pop" style="animation-delay:${i * 60}ms">
               <span class="rank">${i + 1}</span>${avatar(p)}<span class="name">${esc(p.name)}</span>
-              <span class="sips">🍺 ${p.sips}</span><span class="score">${p.score}</span></li>`).join("")}</ol>
+              <span class="sips">🍺 ${p.sips}</span><span class="score">${cardsGame ? `${st.won?.[p.id]?.length ?? 0} 🃏` : p.score}</span></li>`).join("")}</ol>
+          ${final && cardsGame && winners[0] ? `<div class="won-cards">${(st.won?.[winners[0].id] ?? []).map((t) => `<div class="black-card xs">${esc(t)}</div>`).join("")}</div>` : ""}
           ${final && thirsty?.sips ? `<p class="award">🍺 Thirstiest player: <b>${esc(thirsty.name)}</b> with ${sipsText(thirsty.sips)}</p>` : ""}
           ${final ? `<div class="row"><button class="btn big" data-act="lobby">Play again</button><button class="btn ghost" data-act="new-room">New room</button></div>` : ""}
         </div>`;

@@ -418,7 +418,7 @@ export function startPlayer(app, me, onLeave) {
     const hadFocus = document.activeElement?.id === "quip-text";
     app.innerHTML = `<div class="phone">
       <header class="phone-head" style="--c:${esc(self.color)}">${avatar(self, "sm")}<b>${esc(self.name)}</b>
-        <span class="muted">· ${code}</span><span class="spacer"></span><span class="mini">${self.score} pts · 🍺${self.sips}</span>
+        <span class="muted">· ${code}</span><span class="spacer"></span><span class="mini">${st.settings?.mode === "cards" ? `🃏 ${st.won?.[playerId]?.length ?? 0}/${st.settings.target ?? 7}` : `${self.score} pts`} · 🍺${self.sips}</span>
         <button class="link speaker-btn ${speakerOn ? "on" : ""}" data-act="speaker" aria-label="Be the speaker">${speakerOn ? "🔊" : "🔈"}</button>
         <button class="link" data-act="leave">✕</button></header>
       <main>${body}</main></div>`;

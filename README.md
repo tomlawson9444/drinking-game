@@ -25,13 +25,17 @@ text-to-speech and his lines are pre-written in `js/prompts.js`, so there are no
 Pick the **Game** in the lobby:
 
 - **🎉 Party Mix**: a random mix of all the round types below.
-- **🃏 Cards Against Sobriety**: our own fill-in-the-blank card game (all original cards: 120 black,
-  280 white, mild and filthy). Everyone holds 7 white cards on their phone. Each round one player's phone
-  is the **👑 Card Czar** (it passes round the room in joining order — never the TV). Everyone else plays
-  their funniest card(s); the Czar picks a **favourite (+100)** and a **least favourite (drinks 2)**. Hands
-  top back up to 7 every round. Needs 3+ players. Cards live in `js/cards.js`.
-  In filthy mode there's also a **💀 Dark humour** toggle that shuffles in a grim pack (death, funerals,
-  hell, drugs, crime, the apocalypse). It never targets groups of people or real victims of real tragedies.
+- **🃏 Cards Against Sobriety**: Cards Against Humanity rules with the official cards — 4,369 white and
+  957 black from 71 official packs (the **😇 Family Edition** pack in mild mode). Everyone holds **7 white
+  cards** on their phone. Each round one player's phone is the **👑 Card Czar** (it passes round the room in
+  joining order — never the TV). Everyone else plays their card(s) and draws back up to 7; the Czar keeps
+  their hand. The Czar's favourite **wins the black card** (the least favourite drinks 2), and the **first
+  to 7 black cards** (or 5 / 10 — pick in the lobby) wins the game. Needs 3+ players.
+
+  The cards come from [JSON Against Humanity](https://github.com/crhallberg/json-against-humanity) and are
+  © Cards Against Humanity LLC, licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+  (free, non-commercial use with credit). `data/cah.json` is built from that repo by
+  `node tools/build-cards.mjs path/to/cah-all-compact.json` and is under the same licence.
 
 ### Round types (Party Mix)
 
@@ -83,7 +87,9 @@ js/logic.js         round plan + scoring rules (pure, testable)
 js/gm.js            The Landlord: voice-over + captions
 js/prompts.js       prompt decks (mild + filthy) and the Landlord's lines — add your own in-jokes!
 js/prompts-extra.js extra prompt packs, merged into the decks
-js/cards.js         Cards Against Sobriety black and white cards
+js/cards.js         loads the Cards Against Sobriety deck (data/cah.json)
+data/cah.json       official Cards Against Humanity cards (CC BY-NC-SA 4.0)
+tools/build-cards.mjs  rebuilds data/cah.json from JSON Against Humanity
 supabase/migrations database schema, RLS and RPC functions
 ```
 
