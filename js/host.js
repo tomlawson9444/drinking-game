@@ -285,7 +285,8 @@ export async function startHost(app) {
           <div class="lobby-side">
             <h2>Players (${live.players.length}/12)</h2>
             <div class="player-grid">
-              ${live.players.map((p) => `<button class="player-card" data-act="kick" data-id="${p.id}" title="Click to kick" style="--c:${esc(p.color)}">${avatar(p, "lg")}<span>${esc(p.name)}</span></button>`).join("") || `<p class="muted">Waiting for players to join…</p>`}
+              ${live.players.map((p) => `<div class="player-card" style="--c:${esc(p.color)}">${avatar(p, "lg")}<span>${esc(p.name)}</span>
+                <button class="kick" data-act="kick" data-id="${p.id}" aria-label="Kick ${esc(p.name)}">✕ Kick</button></div>`).join("") || `<p class="muted">Waiting for players to join…</p>`}
             </div>
             <div class="settings">
               <div class="setting"><span>Rounds</span>${[6, 10, 15, 20].map((n) => `<button class="pill ${settings.rounds === n ? "on" : ""}" data-act="rounds" data-val="${n}">${n}</button>`).join("")}</div>
