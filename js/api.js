@@ -47,7 +47,8 @@ export const api = {
 
 // Keeps a live copy of room, players and current-round submissions.
 // Realtime pushes changes; a slow poll covers dropped sockets / sleeping phones.
-export function watchRoom(code, onChange) {
+// onSay: called with lines the host broadcasts for phones acting as the Landlord's speaker.
+export function watchRoom(code, onChange, { onSay } = {}) {
   const live = { room: null, players: [], subs: [] };
   let stopped = false;
   let seq = 0;
@@ -85,6 +86,7 @@ export function watchRoom(code, onChange) {
     .on("postgres_changes", { event: "*", schema: "public", table: "dg_rooms", filter: `code=eq.${code}` }, soon)
     .on("postgres_changes", { event: "*", schema: "public", table: "dg_players", filter: `room_code=eq.${code}` }, soon)
     .on("postgres_changes", { event: "*", schema: "public", table: "dg_submissions", filter: `room_code=eq.${code}` }, soon)
+    .on("broadcast", { event: "say" }, (msg) => onSay?.(msg?.payload))
     .subscribe();
 
   const poll = setInterval(refresh, 4000);
@@ -95,6 +97,10 @@ export function watchRoom(code, onChange) {
   return {
     live,
     refresh,
+    // Broadcast a Landlord line to the room's phones (no database write).
+    say(payload) {
+      channel.send({ type: "broadcast", event: "say", payload }).catch(() => {});
+    },
     stop() {
       stopped = true;
       clearInterval(poll);

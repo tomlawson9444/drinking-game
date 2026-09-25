@@ -1,12 +1,16 @@
-// "The Landlord" — the game-master voice. Speaks through the host screen with the
-// browser's built-in speech synthesis (free, no API keys) and shows captions.
+// "The Landlord" — the game-master voice. Speaks with the browser's built-in speech
+// synthesis (free, no API keys) and shows captions. Many TV browsers have no voices, so the
+// host also hands every line to onSpeak, which broadcasts it to phones acting as speakers.
 import { LINES } from "./prompts.js";
 
-export function createGM({ settings, onCaption }) {
+export function createGM({ settings, onCaption, onSpeak }) {
   const synth = window.speechSynthesis;
   let voice = null;
   let speaking = 0;
   const recent = []; // don't repeat a line too soon
+
+  // Whether this browser can actually talk (TV browsers often ship with no voices).
+  const canSpeak = () => Boolean(synth && synth.getVoices().length);
 
   function pickVoice() {
     const voices = synth?.getVoices() ?? [];
@@ -25,7 +29,13 @@ export function createGM({ settings, onCaption }) {
   function say(text, { caption = true } = {}) {
     if (!text) return Promise.resolve();
     if (caption) onCaption(text);
-    if (!settings.voice || !synth) return Promise.resolve();
+    if (!settings.voice) return Promise.resolve();
+    onSpeak?.(text);
+    if (settings.tvVoice === false || !canSpeak()) {
+      // A phone is doing the talking: hold the game for roughly as long as the line takes.
+      speaking++;
+      return new Promise((resolve) => setTimeout(() => (speaking--, resolve()), 1500 + text.length * 65));
+    }
     return new Promise((resolve) => {
       const u = new SpeechSynthesisUtterance(text.replace(/___/g, "blank"));
       if (voice) u.voice = voice;
@@ -62,6 +72,7 @@ export function createGM({ settings, onCaption }) {
 
   return {
     say,
+    canSpeak,
     busy: () => speaking > 0,
     stop: () => synth?.cancel(),
     // Say a line for this moment. Returns null when no line fits, so callers can fall back.

@@ -14,7 +14,10 @@ text-to-speech and his lines are pre-written in `js/prompts.js`, so there are no
 3. Pick the number of rounds and the timer, then hit **start**.
 4. During the game the host screen has **Skip ⏭**, **Back to lobby** and **🏁 End game** (finish early and
    jump straight to the final scores).
-5. **Refreshing the host screen closes the room**: the game is cancelled, everyone is sent back to the start
+5. **No sound from the TV?** Many TV browsers have no speech voices. On any phone tap **🔈 Be the speaker**
+   and the Landlord talks through that phone instead (or a Bluetooth speaker paired with it). Keep that
+   phone's screen on. The lobby's **📺 TV speaks** toggle stops the TV talking if both would.
+6. **Refreshing the host screen closes the room**: the game is cancelled, everyone is sent back to the start
    screen, and a fresh room with a new code opens. (**New room** in the lobby does the same.)
 
 ### Round types
@@ -53,7 +56,8 @@ Please drink responsibly — a "sip" can be any drink, water included.
   previous room (`dg_close_room`) whenever it loads.
 - **The Landlord** picks a line from `LINES` in `js/prompts.js` for each moment, fills in the relevant
   player's name, speaks it with the browser's speech synthesis (a British voice when available) and shows
-  it as a caption. Toggle the voice from the lobby or the 🔊 button.
+  it as a caption. Toggle the voice from the lobby or the 🔊 button. Every line is also sent over a
+  Supabase Realtime broadcast (no database write) to phones that chose "Be the speaker".
 
 ```
 index.html          entry point

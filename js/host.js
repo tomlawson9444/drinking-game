@@ -15,7 +15,7 @@ const CHAMBER_S = 20; // the Drinking Chamber
 const DRAW_S = 90; // minimum time to draw a Tee K.O. shirt
 const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted/;
 
-const DEFAULT_SETTINGS = { rounds: 10, timer: 45, social: true, filthy: true, voice: true };
+const DEFAULT_SETTINGS = { rounds: 10, timer: 45, social: true, filthy: true, voice: true, tvVoice: true };
 
 export async function startHost(app) {
   // Every load of the host screen (including a refresh) starts a fresh room. The previous
@@ -38,6 +38,7 @@ export async function startHost(app) {
   let captionTimer = null;
   const gm = createGM({
     settings,
+    onSpeak: (text) => watcher?.say({ text }),
     onCaption(text) {
       caption.innerHTML = `<span class="gm-name">🎙️ The Landlord</span><span class="gm-text">${esc(text)}</span>`;
       caption.classList.add("show");
@@ -320,10 +321,10 @@ export async function startHost(app) {
         settings[act] = +btn.dataset.val;
         store.set("dg-settings", settings);
         render();
-      } else if (["social", "filthy", "voice"].includes(act)) {
+      } else if (["social", "filthy", "voice", "tvVoice"].includes(act)) {
         settings[act] = !settings[act];
         store.set("dg-settings", settings);
-        if (act === "voice" && settings.voice) gm.say("Testing. One, two. Can the cheap seats hear me?");
+        if ((act === "voice" || act === "tvVoice") && settings.voice) gm.say("Testing. One, two. Can the cheap seats hear me?");
         if (act === "voice" && !settings.voice) gm.stop();
         render();
       }
@@ -379,7 +380,8 @@ export async function startHost(app) {
               <div class="setting"><span>Rounds</span>${[6, 10, 15, 20].map((n) => `<button class="pill ${settings.rounds === n ? "on" : ""}" data-act="rounds" data-val="${n}">${n}</button>`).join("")}</div>
               <div class="setting"><span>Timer</span>${[30, 45, 60, 90].map((n) => `<button class="pill ${settings.timer === n ? "on" : ""}" data-act="timer" data-val="${n}">${n}s</button>`).join("")}</div>
               <div class="setting"><span>Filth level</span>${toggle("filthy", "🔥 Filthy", "😇 Mild")}</div>
-              <div class="setting"><span>Landlord voice</span>${toggle("voice", "🔊 On")}</div>
+              <div class="setting"><span>Landlord voice</span>${toggle("voice", "🔊 On")}${settings.voice ? toggle("tvVoice", "📺 TV speaks", "📺 TV silent") : ""}</div>
+              ${settings.voice ? `<p class="muted small">${gm.canSpeak() ? "" : "⚠️ This TV browser has no voice. "}No sound from the TV? On one phone, tap <b>🔈 Be the speaker</b> and the Landlord talks through that phone instead (or a Bluetooth speaker connected to it).</p>` : ""}
               <div class="setting"><span>Social rounds</span>${toggle("social", "On")}</div>
             </div>
             <button class="btn big" data-act="start" ${live.players.length < 2 ? "disabled" : ""}>Everybody's in — start! 🍻</button>
@@ -598,6 +600,9 @@ export async function startHost(app) {
 
   let lastSig = "";
   let lastPhase = null;
+  // Voices load asynchronously; refresh the lobby's "can this TV talk?" hint when they arrive.
+  window.speechSynthesis?.addEventListener?.("voiceschanged", () => live.room?.phase === "lobby" && render());
+
   watcher = watchRoom(code, (l) => {
     live = l;
     const sig = JSON.stringify([l.room, l.players, l.subs.map((s) => s.player_id + s.kind)]);

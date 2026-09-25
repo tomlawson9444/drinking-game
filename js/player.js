@@ -2,6 +2,7 @@
 import { api, watchRoom, store } from "./api.js";
 import { ROUND_INFO } from "./prompts.js";
 import { norm } from "./logic.js";
+import { createGM } from "./gm.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf } from "./ui.js";
 
 const PENS = ["#111111", "#ff4f79", "#ffb400", "#3ddc97", "#4cc9f0", "#b388ff", "#8b4513", "#ffffff"];
@@ -12,6 +13,9 @@ export function startPlayer(app, me, onLeave) {
   let sending = false;
   let draft = "";
   let lastSig = "";
+  // "Be the speaker": this phone reads out the Landlord's lines the TV broadcasts.
+  let speakerOn = store.get("dg-speaker") === true;
+  const speaker = createGM({ settings: { voice: true }, onCaption() {} });
   // Per-round scratch state for multi-step answers (Who's Who picks, Tee K.O. drawing / shirt).
   let scratch = { round: null };
   const fresh = (round) => {
@@ -37,6 +41,15 @@ export function startPlayer(app, me, onLeave) {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const { act, val } = btn.dataset;
+    if (act === "speaker") {
+      speakerOn = !speakerOn;
+      store.set("dg-speaker", speakerOn);
+      // Speaking now (inside the tap) also unlocks speech on phones that need a user gesture.
+      if (speakerOn) speaker.say("I'm the Landlord, and I'll be talking through this phone. Keep the screen on.");
+      else speaker.stop();
+      render();
+      return;
+    }
     if (act === "pick") send("input", { target: val });
     else if (act === "have") send("input", { have: val === "1" });
     else if (act === "choice") send("input", { choice: +val });
@@ -179,6 +192,8 @@ export function startPlayer(app, me, onLeave) {
           <h2>You're in!</h2>
           <p class="muted">Waiting for the host to start. ${live.players.length} player${live.players.length === 1 ? "" : "s"} so far.</p>
           <div class="waiting-on">${live.players.map((p) => chip(p)).join("")}</div>
+          <button class="btn ${speakerOn ? "" : "ghost"} speaker-card" data-act="speaker">${speakerOn ? "🔊 You're the speaker — tap to stop" : "🔈 Be the speaker"}</button>
+          <p class="muted small">No sound from the TV? Make one phone the speaker and the Landlord talks through it. Turn the volume up and keep the screen on.</p>
         </div>`;
         break;
 
@@ -351,6 +366,7 @@ export function startPlayer(app, me, onLeave) {
     app.innerHTML = `<div class="phone">
       <header class="phone-head" style="--c:${esc(self.color)}">${avatar(self, "sm")}<b>${esc(self.name)}</b>
         <span class="muted">· ${code}</span><span class="spacer"></span><span class="mini">${self.score} pts · 🍺${self.sips}</span>
+        <button class="link speaker-btn ${speakerOn ? "on" : ""}" data-act="speaker" aria-label="Be the speaker">${speakerOn ? "🔊" : "🔈"}</button>
         <button class="link" data-act="leave">✕</button></header>
       <main>${body}</main></div>`;
     setupCanvas();
@@ -361,12 +377,13 @@ export function startPlayer(app, me, onLeave) {
     }
   }
 
+  const onSay = ({ text } = {}) => speakerOn && text && speaker.say(text, { caption: false });
   const watcher = watchRoom(code, (l) => {
     live = l;
     const sig = JSON.stringify([l.room, l.players, l.subs.filter((s) => s.player_id === playerId).map((s) => s.kind)]);
     if (sig === lastSig) return;
     lastSig = sig;
     render();
-  });
+  }, { onSay });
   return watcher;
 }
