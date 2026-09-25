@@ -2,15 +2,18 @@
 // gives The Landlord (the game-master voice) his cues.
 import { api, watchRoom, newToken, store } from "./api.js";
 import { ROUND_INFO, shuffle } from "./prompts.js";
-import { buildPlan, allIn, quipAnswers, fibOptions, scoreRound } from "./logic.js";
+import { buildPlan, allIn, expected, quipAnswers, fibOptions, scoreRound, brawlInit, brawlNext, brawlRecord, teeOffers, teeShirts, stiTwists, stiPosts } from "./logic.js";
 import { createGM } from "./gm.js";
-import { $, esc, avatar, chip, sipsText, timerBar, toast } from "./ui.js";
+import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf } from "./ui.js";
 
 const INTRO_MS = 5000;
 const REVEAL_MS = 12000;
 const SCORES_MS = 6000;
 const MAX_HOLD_MS = 30000; // longest we'll wait for the Landlord to finish talking
-const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone/;
+const MATCH_S = 15; // each knockout match
+const CHAMBER_S = 20; // the Drinking Chamber
+const DRAW_S = 90; // minimum time to draw a Tee K.O. shirt
+const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted/;
 
 const DEFAULT_SETTINGS = { rounds: 10, timer: 45, social: true, filthy: true, voice: true };
 
@@ -53,7 +56,10 @@ export async function startHost(app) {
 
   async function startGame() {
     const names = live.players.map((p) => p.name);
-    const types = ["quip", "likely", "fib", "wyr", "nhie", ...(settings.social ? ["social"] : [])];
+    const types = ["quip", "likely", "fib", "wyr", "nhie", "year", "trivia", "roles", "sti"];
+    // The knockout games need at least three players to be worth it.
+    if (names.length >= 3) types.push("brawl", "tee");
+    if (settings.social) types.push("social");
     const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, names });
     await api.reset(code, token);
     scored.clear();
@@ -88,21 +94,52 @@ export async function startHost(app) {
     try {
       if (room.phase === "intro" && ready(st.until, now)) {
         if (cur.type === "social") await set("reveal", room.round, { ...st, cur: { ...cur, view: {} }, until: now + REVEAL_MS });
-        else await set("input", room.round, { ...st, deadline: now + timer });
+        else {
+          const secs = cur.type === "tee" ? Math.max(DRAW_S, timer / 1000) : timer / 1000;
+          // Out of Context: everyone gets their own innocent question.
+          const extra = cur.type === "sti" ? { ask: Object.fromEntries(live.players.map((p, i) => [p.id, cur.questions[i % cur.questions.length]])) } : {};
+          await set("input", room.round, { ...st, cur: { ...cur, ...extra }, deadline: now + secs * 1000, span: secs });
+        }
       } else if (room.phase === "input" && (now >= st.deadline || allIn("input", cur, live.players, live.subs))) {
         if (cur.type === "quip") {
           const answers = quipAnswers(live.subs);
-          if (answers.length >= 2) await set("vote", room.round, { ...st, cur: { ...cur, answers }, deadline: now + voteTime });
+          if (answers.length >= 2) await set("vote", room.round, { ...st, cur: { ...cur, answers }, deadline: now + voteTime, span: voteTime / 1000 });
           else await reveal(room, st, { ...cur, answers });
+        } else if (cur.type === "sti") {
+          const twists = stiTwists(live.subs, live.players, cur.contexts);
+          if (twists) await set("twist", room.round, { ...st, cur: { ...cur, twists }, deadline: now + timer, span: timer / 1000 });
+          else await reveal(room, st, { ...cur, posts: [] });
+        } else if (cur.type === "brawl") {
+          await startBracket(room, st, { ...cur, entries: quipAnswers(live.subs) });
+        } else if (cur.type === "tee") {
+          const offers = teeOffers(live.subs, live.players);
+          if (offers) await set("vote", room.round, { ...st, cur: { ...cur, offers }, deadline: now + timer, span: timer / 1000 });
+          else await reveal(room, st, { ...cur, entries: [] });
+        } else if (cur.type === "trivia") {
+          // Everyone who got it wrong (or didn't answer) goes into the Drinking Chamber.
+          const right = new Set(live.subs.filter((x) => x.kind === "input" && x.value?.choice === cur.answer).map((x) => x.player_id));
+          const chamber = live.players.map((p) => p.id).filter((id) => !right.has(id));
+          if (chamber.length) {
+            const game = chamber.length <= 2 || Math.random() < 0.5 ? "glasses" : "unique";
+            const spiked = Math.floor(Math.random() * 4);
+            await set("vote", room.round, { ...st, cur: { ...cur, chamber, game, spiked }, deadline: now + CHAMBER_S * 1000, span: CHAMBER_S });
+          } else await reveal(room, st, { ...cur, chamber });
         } else if (cur.type === "fib") {
           const options = fibOptions(live.subs, cur.truth);
-          if (options.length >= 2) await set("vote", room.round, { ...st, cur: { ...cur, options }, deadline: now + voteTime });
+          if (options.length >= 2) await set("vote", room.round, { ...st, cur: { ...cur, options }, deadline: now + voteTime, span: voteTime / 1000 });
           else await reveal(room, st, { ...cur, options });
         } else {
           await reveal(room, st, cur);
         }
       } else if (room.phase === "vote" && (now >= st.deadline || allIn("vote", cur, live.players, live.subs))) {
-        await reveal(room, st, cur);
+        if (cur.type === "tee") await startBracket(room, st, { ...cur, entries: teeShirts(live.subs, cur.offers) });
+        else await reveal(room, st, cur);
+      } else if (room.phase === "twist" && (now >= st.deadline || allIn("twist", cur, live.players, live.subs))) {
+        const posts = stiPosts(live.subs, cur.twists);
+        if (posts.length >= 2) await set("vote", room.round, { ...st, cur: { ...cur, posts }, deadline: now + voteTime, span: voteTime / 1000 });
+        else await reveal(room, st, { ...cur, posts });
+      } else if (room.phase === "match" && (now >= st.deadline || allIn("match", cur, live.players, live.subs))) {
+        await nextMatch(room, st, { ...cur, br: brawlRecord(cur.br, cur.match, live.subs) });
       } else if (room.phase === "reveal" && ready(st.until, now)) {
         await set("scores", room.round, { ...st, until: now + SCORES_MS });
       } else if (room.phase === "scores" && now >= st.until) {
@@ -114,6 +151,20 @@ export async function startHost(app) {
       toast(e.message);
     } finally {
       busy = false;
+    }
+  }
+
+  // Knockout bracket (Pub Brawl answers / Tee K.O. shirts): one match per phase until a champion.
+  async function startBracket(room, st, cur) {
+    await nextMatch(room, st, { ...cur, br: brawlInit(cur.entries) });
+  }
+
+  async function nextMatch(room, st, cur) {
+    const n = brawlNext(cur.br);
+    if (n.match) {
+      await set("match", room.round, { ...st, cur: { ...cur, br: n.br, match: n.match }, deadline: Date.now() + MATCH_S * 1000, span: MATCH_S });
+    } else {
+      await reveal(room, st, { ...cur, br: n.br, match: null, champion: n.champion });
     }
   }
 
@@ -142,10 +193,26 @@ export async function startHost(app) {
         break;
       case "input":
         if (cur.type === "wyr") gm.say(`Would you rather ${cur.prompt[0]}? Or ${cur.prompt[1]}?`, { caption: false });
+        else if (cur.type === "year") gm.say(`What year? ${cur.prompt}`, { caption: false });
+        else if (cur.type === "tee") gm.say("Draw something on your phone, and write a slogan. Filth encouraged.", { caption: false });
+        else if (cur.type === "sti") gm.say("Answer the question on your phone. Honestly. What could possibly go wrong?", { caption: false });
         else gm.say(cur.prompt, { caption: false });
         break;
-      case "vote":
-        gm.say(cur.type === "fib" ? "Now. Which one's the truth?" : "Right. Vote for the least disappointing one.", { caption: false });
+      case "vote": {
+        const lines = {
+          fib: "Now. Which one's the truth?",
+          trivia: "Wrong answers, welcome to the Drinking Chamber.",
+          tee: "Now make a shirt out of someone else's rubbish.",
+          sti: "Vote for the most out-of-context. No mercy.",
+        };
+        gm.say(lines[cur.type] ?? "Right. Vote for the least disappointing one.", { caption: false });
+        break;
+      }
+      case "match":
+        gm.say(`${cur.match?.label ?? "Next match"}. Fight!`, { caption: false });
+        break;
+      case "twist":
+        gm.say("Now for the fun part. You've been given someone else's answer. Tell us where it was really posted.", { caption: false });
         break;
       case "reveal":
         if (cur.type === "social") gm.say(cur.prompt, { caption: false });
@@ -189,6 +256,30 @@ export async function startHost(app) {
       case "fib": {
         const fooled = shuffle((v.options ?? []).filter((o) => !o.truth && o.pickers.length))[0];
         vars = { liar: any(fooled?.pids), name: any(fooled?.pickers) };
+        break;
+      }
+      case "year": {
+        const g = v.guesses ?? [];
+        const worst = g.filter((x) => (cur.deltas?.[x.pid]?.why ?? []).includes("Furthest off"));
+        vars = { winner: nameOf(g[0]?.pid), name: nameOf(worst[0]?.pid), miss: worst[0]?.miss };
+        break;
+      }
+      case "trivia":
+        if (!(v.results ?? []).some((r) => r.dead)) key = "trivia_clean";
+        vars = { name: any((v.results ?? []).filter((r) => r.dead).map((r) => r.pid)) };
+        break;
+      case "roles": {
+        const c = (v.crowned ?? []).find((x) => x.role === cur.drink);
+        vars = { name: any(c?.holders), role: cur.drink.replace(/^The /, "the ") };
+        break;
+      }
+      case "brawl":
+      case "tee":
+        vars = { winner: nameOf(v.champion?.pid), name: nameOf(v.history?.[0]?.loser) };
+        break;
+      case "sti": {
+        const top = (v.results ?? []).find((x) => x.winner);
+        vars = { winner: nameOf(top?.pid), victim: nameOf(top?.from), name: any(drinking("Zero votes")) };
         break;
       }
     }
@@ -307,32 +398,17 @@ export async function startHost(app) {
         break;
 
       case "input":
-      case "vote": {
-        const kind = room.phase === "input" ? "input" : "vote";
-        const done = new Set(live.subs.filter((s) => s.kind === kind).map((s) => s.player_id));
-        let prompt = "";
-        if (cur.type === "wyr") {
-          prompt = `<h2 class="kicker">Would you rather…</h2>
-            <div class="wyr"><div class="wyr-opt a">${esc(cur.prompt[0])}</div><div class="or">OR</div><div class="wyr-opt b">${esc(cur.prompt[1])}</div></div>`;
-        } else if (room.phase === "vote") {
-          const items = cur.type === "fib" ? cur.options ?? [] : cur.answers ?? [];
-          prompt = `<h2 class="prompt sm">${esc(cur.prompt)}</h2>
-            <p class="kicker">${cur.type === "fib" ? "Which one is the TRUTH? Vote on your phone!" : "Vote for your favourite on your phone!"}</p>
-            <div class="answers">${items.map((a, i) => `<div class="answer pop" style="animation-delay:${i * 80}ms">${esc(a.text)}</div>`).join("")}</div>`;
-        } else {
-          const hint = {
-            likely: "Vote on your phone!",
-            nhie: "Answer honestly on your phone…",
-            quip: "Write your funniest answer on your phone!",
-            fib: "Write a convincing LIE on your phone!",
-          }[cur.type];
-          prompt = `<h1 class="prompt">${esc(cur.prompt)}</h1><p class="kicker">${hint}</p>`;
-        }
+      case "vote":
+      case "twist":
+      case "match": {
+        const { kind, ids } = expected(room.phase, cur, live.players);
+        const who = room.phase === "input" ? live.players : live.players.filter((p) => ids.includes(p.id));
+        const done = new Set(live.subs.filter((x) => x.kind === (kind ?? "input")).map((x) => x.player_id));
         body = `<div class="stage">
-          ${timerBar(st.deadline, kind === "vote" ? Math.min(st.settings.timer, 40) : st.settings.timer)}
+          ${timerBar(st.deadline, st.span ?? st.settings.timer)}
           <div class="round-type">${info.emoji} ${esc(info.title)}</div>
-          ${prompt}
-          <div class="waiting-on">${live.players.map((p) => chip(p, done.has(p.id) ? "done" : "wait")).join("")}</div>
+          ${hostStage(room, cur, byId)}
+          <div class="waiting-on">${who.map((p) => chip(p, done.has(p.id) ? "done" : "wait")).join("")}</div>
         </div>`;
         break;
       }
@@ -369,6 +445,74 @@ export async function startHost(app) {
       q.make();
       qr.innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
     }
+  }
+
+  // What the TV shows while phones are busy (answering, voting, fighting).
+  function hostStage(room, cur, byId) {
+    const phase = room.phase;
+    const cards = (items) => `<div class="answers">${items.map((t, i) => `<div class="answer pop" style="animation-delay:${i * 80}ms">${esc(t)}</div>`).join("")}</div>`;
+    if (phase === "match") {
+      const m = cur.match;
+      const side = (e) => (cur.type === "tee" ? shirt(drawingOf(live.subs, e.img), e.text) : `<div class="answer">${esc(e.text)}</div>`);
+      return `<h2 class="kicker">${esc(m.label)}</h2>${cur.type === "brawl" ? `<h2 class="prompt sm">${esc(cur.prompt)}</h2>` : ""}
+        <div class="versus"><div class="fighter a pop">${side(m.a)}</div><div class="vs">VS</div><div class="fighter b pop">${side(m.b)}</div></div>
+        <p class="kicker">Tap your favourite on your phone!</p>`;
+    }
+    if (phase === "twist") return `<h1 class="prompt">Everyone's been handed someone else's answer…</h1>
+      <p class="kicker">Now say where it was REALLY posted. Make it hurt.</p>`;
+    if (phase === "vote") {
+      switch (cur.type) {
+        case "fib":
+          return `<h2 class="prompt sm">${esc(cur.prompt)}</h2><p class="kicker">Which one is the TRUTH? Vote on your phone!</p>${cards((cur.options ?? []).map((o) => o.text))}`;
+        case "trivia":
+          return `<h2 class="prompt sm">${esc(cur.prompt)}</h2><p class="kicker">✅ ${esc(cur.answer)}</p>
+            <h1 class="chamber-title">☠️ THE DRINKING CHAMBER ☠️</h1>
+            <p class="rules">${cur.game === "glasses" ? "Four glasses. One is spiked. Pick one on your phone — whoever picks the spiked glass drinks 3." : "Pick a number from 1 to 5. If anyone else picks the same number, you both drink 3."}</p>`;
+        case "tee":
+          return `<h1 class="prompt">Make your shirt!</h1><p class="kicker">Pick a drawing and a slogan — made by your mates — on your phone.</p>`;
+        case "sti":
+          return `<p class="kicker">Vote for the best twist on your phone!</p>${stiCards(cur.posts ?? [], byId, false)}`;
+        default:
+          return `<h2 class="prompt sm">${esc(cur.prompt)}</h2><p class="kicker">Vote for your favourite on your phone!</p>${cards((cur.answers ?? []).map((a) => a.text))}`;
+      }
+    }
+    // Answering.
+    switch (cur.type) {
+      case "wyr":
+        return `<h2 class="kicker">Would you rather…</h2>
+          <div class="wyr"><div class="wyr-opt a">${esc(cur.prompt[0])}</div><div class="or">OR</div><div class="wyr-opt b">${esc(cur.prompt[1])}</div></div>`;
+      case "year":
+        return `<h2 class="kicker">What year?</h2><h1 class="prompt">${esc(cur.prompt)}</h1><p class="kicker">Type your guess on your phone!</p>`;
+      case "trivia":
+        return `<h1 class="prompt">${esc(cur.prompt)}</h1>${cards(cur.options)}<p class="kicker">Get it wrong and you enter the Drinking Chamber…</p>`;
+      case "roles":
+        return `<h1 class="prompt">${esc(cur.prompt)}</h1><div class="role-list">${cur.roles.map((r) => `<span class="role ${r === cur.drink ? "drink-role" : ""}">${esc(r)}${r === cur.drink ? " 🍺" : ""}</span>`).join("")}</div>
+          <p class="kicker">Match each one to a mate on your phone!</p>`;
+      case "tee":
+        return `<h1 class="prompt">Design a T-shirt!</h1><p class="kicker">Draw a picture and write a slogan on your phone. Everything gets mixed up later…</p>`;
+      case "sti":
+        return `<h1 class="prompt">Answer your question on your phone.</h1><p class="kicker">Honestly. Innocently. What could possibly go wrong?</p>`;
+      default: {
+        const hint = {
+          likely: "Vote on your phone!",
+          nhie: "Answer honestly on your phone…",
+          quip: "Write your funniest answer on your phone!",
+          brawl: "Write an answer — then they fight!",
+          fib: "Write a convincing LIE on your phone!",
+        }[cur.type];
+        return `<h1 class="prompt">${esc(cur.prompt)}</h1><p class="kicker">${hint ?? ""}</p>`;
+      }
+    }
+  }
+
+  // Out of Context posts, optionally with who wrote what and the votes.
+  function stiCards(posts, byId, reveal) {
+    return `<div class="answers results">${posts.map((x, i) => `<div class="answer post pop ${reveal && x.winner ? "win" : ""}" style="animation-delay:${i * 120}ms">
+      <div class="post-ctx">Posted as ${esc(x.context)}:</div>
+      <div class="post-q">“${esc(x.answer)}”</div>
+      <div class="a-text">${esc(x.text)}</div>
+      ${reveal ? `<div class="a-meta">Answer by ${chip(byId[x.from])} · twisted by ${chip(byId[x.pid])} <b>${x.voters.length}</b> vote${x.voters.length === 1 ? "" : "s"} ${x.winner ? "👑" : ""}</div>` : ""}
+    </div>`).join("")}</div>`;
   }
 
   function renderReveal(cur, info, byId) {
@@ -409,6 +553,42 @@ export async function startHost(app) {
             <div class="a-meta small">${o.pickers.length ? `Picked by ${o.pickers.map(name).join(", ")}` : "Nobody fell for it"}</div></div>`).join("")}</div>`;
         break;
     }
+    switch (cur.type) {
+      case "year":
+        main = `<h2 class="prompt sm">${esc(cur.prompt)}</h2><div class="bigyear pop">${cur.year}</div>
+          <div class="tally">${(v.guesses ?? []).map((g) => `<div class="tally-row">${chip(byId[g.pid])} <b>${g.year}</b>
+            <span class="voters">${g.miss === 0 ? "BANG ON!" : `${g.miss} year${g.miss === 1 ? "" : "s"} out`}</span></div>`).join("") || `<p>No guesses?!</p>`}</div>`;
+        break;
+      case "trivia":
+        main = `<h2 class="prompt sm">${esc(cur.prompt)}</h2><p class="kicker">✅ ${esc(cur.answer)}</p>
+          ${v.correct?.length ? `<p>Got it right: ${v.correct.map((id) => chip(byId[id])).join("")}</p>` : ""}
+          ${(v.results ?? []).length ? `<h2 class="chamber-title">☠️ The Drinking Chamber</h2>
+            ${cur.game === "glasses" ? `<p class="muted">The spiked glass was number ${cur.spiked + 1}.</p>` : ""}
+            <div class="tally">${v.results.map((r) => `<div class="tally-row">${chip(byId[r.pid])}
+              <span>${r.pick === undefined ? "—" : cur.game === "glasses" ? `glass ${r.pick + 1}` : `picked ${r.pick}`}</span>
+              <b>${r.dead ? `💀 ${esc(r.dead)}` : "😅 Survived"}</b></div>`).join("")}</div>` : `<p class="kicker">Everyone survived!</p>`}`;
+        break;
+      case "roles":
+        main = `<h2 class="prompt sm">${esc(cur.prompt)}</h2>
+          <div class="tally">${(v.crowned ?? []).map((c) => `<div class="tally-row"><span class="role ${c.role === cur.drink ? "drink-role" : ""}">${esc(c.role)}</span>
+            ${c.holders.length ? c.holders.map((h) => chip(byId[h])).join("") : `<span class="muted">nobody</span>`}
+            <span class="voters">${c.holders.map((h) => `${c.tally[h].length} vote${c.tally[h].length === 1 ? "" : "s"}`).join(", ")}</span></div>`).join("")}</div>`;
+        break;
+      case "brawl":
+      case "tee": {
+        const tee = cur.type === "tee";
+        const c = v.champion;
+        main = `${tee ? "" : `<h2 class="prompt sm">${esc(cur.prompt)}</h2>`}
+          ${c ? `<div class="spotlight pop">🏆 CHAMPION 🏆</div>${tee ? shirt(drawingOf(live.subs, c.img), c.text, "big") : `<div class="answer win">${esc(c.text)}</div>`}
+            <p>${tee ? `Made by ${chip(byId[c.pid])} · drawn by ${chip(byId[c.img])} · slogan by ${chip(byId[c.by])}` : `by ${chip(byId[c.pid])}`}</p>` : `<p>No entries?! Everybody drinks.</p>`}
+          <div class="tally">${(v.history ?? []).map((h) => `<div class="tally-row"><span class="muted">${esc(h.label)}</span> ${chip(byId[h.winner])} beat ${chip(byId[h.loser])}
+            <span class="voters">${Math.max(h.va.length, h.vb.length)}–${Math.min(h.va.length, h.vb.length)}</span></div>`).join("")}</div>`;
+        break;
+      }
+      case "sti":
+        main = (v.results ?? []).length ? stiCards(v.results, byId, true) : `<p>No twists?! Everybody drinks.</p>`;
+        break;
+    }
     const drinkers = Object.entries(cur.deltas ?? {}).filter(([, d]) => d.sips > 0);
     return `<div class="round-type">${info.emoji} ${esc(info.title)}</div>${main}
       ${drinkers.length ? `<div class="drink-list"><h2>🍺 Drink up!</h2>${drinkers
@@ -423,7 +603,7 @@ export async function startHost(app) {
     const sig = JSON.stringify([l.room, l.players, l.subs.map((s) => s.player_id + s.kind)]);
     if (sig !== lastSig) render();
     lastSig = sig;
-    const phaseKey = l.room && `${l.room.phase}:${l.room.round}`;
+    const phaseKey = l.room && `${l.room.phase}:${l.room.round}:${l.room.state?.cur?.match?.m ?? ""}`;
     if (lastPhase !== null && phaseKey !== lastPhase && l.room) announce(l.room);
     lastPhase = phaseKey;
     step();

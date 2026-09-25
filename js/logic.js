@@ -1,15 +1,16 @@
 // Pure game rules: building the round plan and scoring a round.
 // No DOM or network here so it can be tested with plain Node.
-import { MILD, FILTHY, FIBS, shuffle } from "./prompts.js";
+import { MILD, FILTHY, FIBS, YEARS, TRIVIA, ROLE_SETS, TEE_IDEAS, STI_QUESTIONS, STI_CONTEXTS, shuffle } from "./prompts.js";
 
-const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, social: 1 };
+const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, social: 1 };
 
 // opts: { filthy, names: [player names] }
 export function buildPlan(rounds, types, opts = {}) {
   const base = opts.filthy ? FILTHY : MILD;
   const decks = {};
   const draw = (t) => {
-    if (!decks[t]?.length) decks[t] = shuffle(t === "fib" ? FIBS : base[t]);
+    const src = { fib: FIBS, year: YEARS, trivia: TRIVIA, roles: ROLE_SETS.filter((r) => opts.filthy || !r.filthy) }[t] ?? base[t];
+    if (!decks[t]?.length) decks[t] = shuffle(src);
     return decks[t].pop();
   };
   const names = opts.names?.length ? opts.names : ["someone"];
@@ -22,8 +23,18 @@ export function buildPlan(rounds, types, opts = {}) {
     let options = bag.filter((t) => t !== last);
     if (!options.length) options = bag;
     const type = options[Math.floor(Math.random() * options.length)];
-    const p = draw(type);
+    // Pub Brawl answers quip prompts, so it shares the quip deck.
+    const p = type === "tee" || type === "sti" ? null : draw(type === "brawl" ? "quip" : type);
     if (type === "fib") plan.push({ type, prompt: p.q, truth: p.a });
+    else if (type === "year") plan.push({ type, prompt: p.q, year: p.year });
+    else if (type === "trivia") plan.push({ type, prompt: p.q, answer: p.options[0], options: shuffle(p.options) });
+    else if (type === "roles") {
+      // One role per player (up to the size of the set), always including the drinking role.
+      const n = Math.max(2, Math.min(names.length, p.roles.length));
+      const others = shuffle(p.roles.filter((r) => r !== p.drink)).slice(0, n - 1);
+      plan.push({ type, prompt: p.title, roles: shuffle([p.drink, ...others]), drink: p.drink });
+    } else if (type === "tee") plan.push({ type, prompt: "Design a T-shirt", ideas: shuffle(TEE_IDEAS) });
+    else if (type === "sti") plan.push({ type, prompt: "Out of Context", questions: shuffle(STI_QUESTIONS), contexts: shuffle(STI_CONTEXTS) });
     else if (type === "wyr") plan.push({ type, prompt: p.map(fill) });
     else plan.push({ type, prompt: fill(p) });
     last = type;
@@ -42,6 +53,21 @@ export function expected(phase, round, players) {
     return { kind: "vote", ids: players.filter((p) => answers.some((a) => a.pid !== p.id)).map((p) => p.id) };
   }
   if (phase === "vote" && round.type === "fib") return { kind: "vote", ids: players.map((p) => p.id) };
+  // Pub Quiz of Doom: only the wrong-answerers are in the Drinking Chamber.
+  if (phase === "vote" && round.type === "trivia") return { kind: "vote", ids: players.filter((p) => round.chamber?.includes(p.id)).map((p) => p.id) };
+  // Tee K.O.: everyone who was offered parts makes a shirt.
+  if (phase === "vote" && round.type === "tee") return { kind: "vote", ids: players.filter((p) => round.offers?.[p.id]).map((p) => p.id) };
+  // Out of Context: everyone given someone's answer twists it, then everyone votes on the twists.
+  if (phase === "twist") return { kind: "twist", ids: players.filter((p) => round.twists?.[p.id]).map((p) => p.id) };
+  if (phase === "vote" && round.type === "sti") {
+    const posts = round.posts ?? [];
+    return { kind: "vote", ids: players.filter((p) => posts.some((x) => x.pid !== p.id)).map((p) => p.id) };
+  }
+  // Knockout matches: everyone votes except the two entries' owners.
+  if (phase === "match" && round.match) {
+    const owners = [round.match.a.pid, round.match.b.pid];
+    return { kind: `m${round.match.m}`, ids: players.filter((p) => !owners.includes(p.id)).map((p) => p.id) };
+  }
   return { kind: null, ids: [] };
 }
 
@@ -75,6 +101,93 @@ export function fibOptions(subs, truth) {
   // still matches votes already cast.
   const lies = [...byText.entries()].map(([key, o]) => ({ ...o, key: `lie:${key}` }));
   return shuffle([...lies, { text: truth, pids: [], truth: true, key: "truth" }]);
+}
+
+// ------------------------------------------------------------------ knockout brackets
+// Used by Pub Brawl (answers) and Tee K.O. (shirts). Entries are { pid (owner), text, ... }.
+
+export function brawlInit(entries) {
+  const current = shuffle(entries);
+  return { current, next: [], history: [], m: 0, size: current.length };
+}
+
+const bracketLabel = (size) => (size <= 2 ? "The Final" : size <= 4 ? "Semi-final" : size <= 8 ? "Quarter-final" : "First round");
+
+// Next match in the bracket, or the champion when only one entry is left. Byes go straight through.
+export function brawlNext(br) {
+  let { current, next, size } = br;
+  current = [...current];
+  next = [...next];
+  for (;;) {
+    if (current.length >= 2) {
+      const [a, b, ...rest] = current;
+      return { br: { ...br, current: rest, next, size }, match: { a, b, m: br.m, label: bracketLabel(size) } };
+    }
+    if (current.length === 1) next.push(current.pop());
+    if (next.length <= 1) return { br: { ...br, current: [], next: [], size }, champion: next[0] ?? null };
+    current = next;
+    next = [];
+    size = current.length;
+  }
+}
+
+// Settle a match from its votes (a tie is a coin toss) and move the winner on.
+export function brawlRecord(br, match, subs) {
+  const votes = subs.filter((s) => s.kind === `m${match.m}`);
+  const va = votes.filter((v) => v.value?.pick === "a").map((v) => v.player_id);
+  const vb = votes.filter((v) => v.value?.pick === "b").map((v) => v.player_id);
+  const aWins = va.length > vb.length || (va.length === vb.length && Math.random() < 0.5);
+  const [winner, loser] = aWins ? [match.a, match.b] : [match.b, match.a];
+  return {
+    ...br,
+    next: [...br.next, winner],
+    history: [...br.history, { m: match.m, label: match.label, a: match.a, b: match.b, va, vb, winner: winner.pid, loser: loser.pid }],
+    m: br.m + 1,
+  };
+}
+
+// Tee K.O.: give each player two drawings and two slogans made by other people.
+export function teeOffers(subs, players) {
+  const made = subs.filter((s) => s.kind === "input" && (s.value?.img || String(s.value?.slogan ?? "").trim()));
+  const imgs = made.filter((s) => s.value.img).map((s) => s.player_id);
+  const slogans = made.filter((s) => String(s.value.slogan ?? "").trim()).map((s) => s.player_id);
+  if (!imgs.length || !slogans.length) return null;
+  const pickTwo = (pool, me) => {
+    const others = shuffle(pool.filter((id) => id !== me));
+    return (others.length >= 2 ? others : [...others, ...shuffle(pool.filter((id) => id === me))]).slice(0, 2);
+  };
+  return Object.fromEntries(players.map((p) => [p.id, { imgs: pickTwo(imgs, p.id), slogans: pickTwo(slogans, p.id) }]));
+}
+
+// Shirts from the "make" votes: { pid: maker, img: drawer's pid, by: slogan writer's pid, text: slogan }.
+export function teeShirts(subs, offers) {
+  const sloganOf = (pid) => String(subs.find((s) => s.kind === "input" && s.player_id === pid)?.value?.slogan ?? "").trim().slice(0, 60);
+  return subs
+    .filter((s) => s.kind === "vote" && offers?.[s.player_id])
+    .filter((s) => offers[s.player_id].imgs.includes(s.value?.img) && offers[s.player_id].slogans.includes(s.value?.slogan))
+    .map((s) => ({ pid: s.player_id, img: s.value.img, by: s.value.slogan, text: sloganOf(s.value.slogan) }));
+}
+
+// Out of Context: hand every player someone else's answer (and a place it was "posted").
+export function stiTwists(subs, players, contexts) {
+  const answers = shuffle(subs.filter((s) => s.kind === "input" && String(s.value?.text ?? "").trim()));
+  if (answers.length < 2) return null;
+  const twists = {};
+  shuffle(players).forEach((p, i) => {
+    // Round-robin through the answers, skipping the player's own.
+    let a = answers[i % answers.length];
+    if (a.player_id === p.id) a = answers[(i + 1) % answers.length];
+    twists[p.id] = { from: a.player_id, answer: String(a.value.text).trim().slice(0, 120), context: contexts[i % contexts.length] };
+  });
+  return twists;
+}
+
+export function stiPosts(subs, twists) {
+  return shuffle(
+    subs
+      .filter((s) => s.kind === "twist" && twists?.[s.player_id] && String(s.value?.text ?? "").trim())
+      .map((s) => ({ pid: s.player_id, ...twists[s.player_id], text: String(s.value.text).trim().slice(0, 100) })),
+  );
 }
 
 // Returns { deltas: {pid: {score, sips, why[]}}, view: {...type specific display data} }
@@ -178,6 +291,114 @@ export function scoreRound(round, players, subs) {
       const voted = new Set(votes.map((v) => v.player_id));
       ids.filter((id) => !voted.has(id)).forEach((id) => add(id, 0, 1, "Didn't vote"));
       view.options = Object.values(byKey).sort((a, b) => Number(b.truth) - Number(a.truth) || b.pickers.length - a.pickers.length);
+      break;
+    }
+    case "year": {
+      const guesses = Object.entries(byPlayer)
+        .filter(([, v]) => Number.isFinite(v?.year))
+        .map(([pid, v]) => ({ pid, year: v.year, miss: Math.abs(v.year - round.year) }))
+        .sort((a, b) => a.miss - b.miss);
+      const misses = [...new Set(guesses.map((g) => g.miss))];
+      const worst = misses.length > 1 ? misses[misses.length - 1] : null; // nobody's "furthest" if all tie
+      guesses.forEach((g) => {
+        const rank = misses.indexOf(g.miss);
+        if (g.miss === 0) add(g.pid, 500, 0, "Bang on!");
+        else if (g.miss === worst) add(g.pid, 0, 2, "Furthest off");
+        else if (rank < 3) add(g.pid, [300, 200, 100][rank], 0, rank === 0 ? "Closest" : "Close-ish");
+      });
+      slowpokes.forEach((id) => add(id, 0, 1, "Too slow"));
+      view.guesses = guesses;
+      break;
+    }
+    case "trivia": {
+      const correct = Object.keys(byPlayer).filter((pid) => byPlayer[pid]?.choice === round.answer);
+      correct.forEach((pid) => add(pid, 200, 0, "Correct"));
+      const chamber = round.chamber ?? [];
+      const picks = Object.fromEntries(votes.map((v) => [v.player_id, v.value?.pick]));
+      const results = chamber.map((pid) => {
+        const pick = picks[pid];
+        let dead;
+        if (pick === undefined) dead = "Froze in the chamber";
+        else if (round.game === "glasses") dead = pick === round.spiked ? "Picked the spiked glass" : null;
+        else dead = chamber.filter((o) => o !== pid && picks[o] === pick).length ? `Clashed on ${pick}` : null;
+        if (dead) add(pid, 0, 3, dead);
+        return { pid, pick, dead };
+      });
+      view.correct = correct;
+      view.results = results;
+      break;
+    }
+    case "roles": {
+      const roles = round.roles ?? [];
+      const crowned = roles.map((role, i) => {
+        const tally = {};
+        for (const [pid, v] of Object.entries(byPlayer)) {
+          const target = v?.assign?.[i];
+          if (ids.includes(target)) (tally[target] ??= []).push(pid);
+        }
+        const max = Math.max(0, ...Object.values(tally).map((t) => t.length));
+        const holders = Object.keys(tally).filter((t) => tally[t].length === max && max > 0);
+        holders.forEach((h) => tally[h].forEach((voter) => add(voter, 100, 0, "Agreed with the group")));
+        if (role === round.drink) holders.forEach((h) => add(h, 0, 2, `Crowned ${role}`));
+        return { role, holders, tally };
+      });
+      // Anyone whose picks matched nobody's is the odd one out.
+      for (const pid of Object.keys(byPlayer)) {
+        if (!(deltas[pid]?.why ?? []).includes("Agreed with the group")) add(pid, 0, 1, "Odd one out");
+      }
+      slowpokes.forEach((id) => add(id, 0, 1, "Too slow"));
+      view.crowned = crowned;
+      break;
+    }
+    case "sti": {
+      const posts = round.posts ?? [];
+      const got = Object.fromEntries(posts.map((x) => [x.pid, []]));
+      for (const v of votes) {
+        const target = v.value?.target;
+        if (target in got && target !== v.player_id) got[target].push(v.player_id);
+      }
+      const top = Math.max(0, ...Object.values(got).map((g) => g.length));
+      for (const x of posts) {
+        const n = got[x.pid].length;
+        if (n) {
+          add(x.pid, 100 * n, 0, `${n} vote${n === 1 ? "" : "s"}`);
+          add(x.from, 50 * n, 0, "Your answer got twisted");
+        } else if (posts.length > 1) add(x.pid, 0, 2, "Zero votes");
+      }
+      const twisted = new Set(posts.map((x) => x.pid));
+      Object.keys(round.twists ?? {}).filter((id) => !twisted.has(id)).forEach((id) => add(id, 0, 1, "No twist"));
+      slowpokes.forEach((id) => add(id, 0, 1, "No answer"));
+      view.results = posts
+        .map((x) => ({ ...x, voters: got[x.pid], winner: top > 0 && got[x.pid].length === top }))
+        .sort((a, b) => b.voters.length - a.voters.length);
+      break;
+    }
+    case "brawl":
+    case "tee": {
+      const history = round.br?.history ?? [];
+      const tee = round.type === "tee";
+      for (const h of history) {
+        const winVotes = h.winner === h.a.pid ? h.va : h.vb;
+        const win = h.winner === h.a.pid ? h.a : h.b;
+        if (winVotes.length) add(win.pid, 100 * winVotes.length, 0, `${winVotes.length} vote${winVotes.length === 1 ? "" : "s"}`);
+        if (tee && winVotes.length) {
+          add(win.img, 50 * winVotes.length, 0, "Drew a winner");
+          add(win.by, 50 * winVotes.length, 0, "Wrote a winner");
+        }
+        add(h.loser, 0, 1, "Knocked out");
+      }
+      const champ = round.champion;
+      if (champ) {
+        add(champ.pid, tee ? 300 : 500, 0, "Champion");
+        if (tee) {
+          add(champ.img, 100, 0, "Champion drawing");
+          add(champ.by, 100, 0, "Champion slogan");
+        }
+      }
+      const entered = new Set((round.entries ?? []).map((e) => e.pid));
+      ids.filter((id) => !entered.has(id)).forEach((id) => add(id, 0, 2, tee ? "No shirt" : "No answer"));
+      view.history = history;
+      view.champion = champ;
       break;
     }
     default:

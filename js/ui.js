@@ -41,3 +41,17 @@ export function tickTimers() {
   });
 }
 setInterval(tickTimers, 250);
+
+// Only ever render drawings that are plain image data URLs.
+export const safeImg = (src) => (/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(src ?? "") ? src : "");
+
+// Tee K.O. shirt: a drawing on a T-shirt with a slogan underneath.
+export function shirt(src, slogan, extra = "") {
+  const img = safeImg(src);
+  return `<div class="shirt ${extra}"><svg class="tee" viewBox="0 0 100 100" aria-hidden="true">
+      <path d="M30 8 L42 4 Q50 12 58 4 L70 8 L94 24 L84 40 L74 34 L74 96 L26 96 L26 34 L16 40 L6 24 Z"/></svg>
+    <div class="tee-print">${img ? `<img src="${img}" alt="">` : ""}<div class="tee-slogan">${esc(slogan)}</div></div></div>`;
+}
+
+// The drawing for a pid from this round's input submissions.
+export const drawingOf = (subs, pid) => subs.find((s) => s.kind === "input" && s.player_id === pid)?.value?.img;

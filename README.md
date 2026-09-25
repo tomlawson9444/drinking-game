@@ -26,6 +26,12 @@ text-to-speech and his lines are pre-written in `js/prompts.js`, so there are no
 | ⚖️ **Would You Rather** | Pick a side | The minority drinks 1 (a dead-even split: everyone drinks) |
 | 🙊 **Never Have I Ever** | Confess on your phone | Everyone who has drinks 1 (+50 pts for honesty) |
 | 🤥 **Lie Detector** | Write a fake answer to a weird-but-true fact, then spot the truth | Fooled by a lie: 1 sip. Each person you fool: +100 pts. Truth: +200 |
+| 📅 **Year Guess** *(Time Jinx)* | Guess the year something happened | Furthest off drinks 2. Closest +300, bang on +500 |
+| ☠️ **Pub Quiz of Doom** *(Trivia Murder Party)* | Multiple-choice question; wrong answers enter the Drinking Chamber (pick a glass — one's spiked — or pick a number and hope nobody matches) | Chamber losers drink 3. Correct +200 |
+| 🎭 **Who's Who** *(Role Models)* | Sort your mates into a set — Spice Girls, Only Fools, night-out roles… | Whoever the group crowns the 🍺 role drinks 2; agree with nobody = 1 |
+| 🥊 **Pub Brawl** *(Bracketeering)* | Everyone answers, then answers fight head-to-head in a knockout bracket | Every knocked-out answer drinks 1. Champion +500 |
+| 👕 **Tee K.O.** | Draw a picture and write a slogan on your phone, build a shirt from your mates' work, then shirts fight in a bracket | Every knocked-out shirt's maker drinks 1 |
+| 📱 **Out of Context** *(Survive the Internet)* | Answer an innocent question; someone else reveals where it was "really posted" | Twists with zero votes drink 2 |
 | 🍻 **Social** | A rule for the whole room | Whoever the rule says |
 
 **Filth level:** 🔥 Filthy (default — sex, bodily functions, brutal roasts; prompts get personalised with
@@ -73,6 +79,7 @@ To run locally: `python3 -m http.server` in this folder and open http://localhos
 
 ## Adding prompts
 
-Edit the arrays in `js/prompts.js`. Quip prompts use `___` for the blank; Would You Rather entries are
+Edit the arrays in `js/prompts.js` (years, trivia, role sets, T-shirt ideas and Out of Context
+questions/contexts live there too; trivia lists the correct option first). Quip prompts use `___` for the blank; Would You Rather entries are
 `["option A", "option B"]` pairs. Add Landlord lines to `LINES`; `{name}`-style blanks are filled with
 player names, and a line is only used when all its blanks can be filled.

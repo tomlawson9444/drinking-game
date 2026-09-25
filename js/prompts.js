@@ -216,6 +216,140 @@ export const FIBS = [
   { q: "A group of crows is called a ___.", a: "murder" },
 ];
 
+// ------------------------------------------------------------------ Year Guess
+
+export const YEARS = [
+  { q: "Neil Armstrong walked on the Moon.", year: 1969 },
+  { q: "The Berlin Wall came down.", year: 1989 },
+  { q: "The Titanic sank.", year: 1912 },
+  { q: "The first iPhone went on sale.", year: 2007 },
+  { q: "Facebook launched.", year: 2004 },
+  { q: "England won the World Cup.", year: 1966 },
+  { q: "The Channel Tunnel opened.", year: 1994 },
+  { q: "Euro notes and coins went into circulation.", year: 2002 },
+  { q: "The first Harry Potter book was published.", year: 1997 },
+  { q: "The Spice Girls released 'Wannabe'.", year: 1996 },
+  { q: "The first Star Wars film hit cinemas.", year: 1977 },
+  { q: "The Chernobyl disaster happened.", year: 1986 },
+  { q: "Queen Elizabeth II was crowned.", year: 1953 },
+  { q: "Toy Story, the first fully computer-animated feature film, was released.", year: 1995 },
+  { q: "The UK switched to decimal currency.", year: 1971 },
+  { q: "Smoking was banned in pubs in England.", year: 2007 },
+  { q: "The first Glastonbury Festival took place.", year: 1970 },
+  { q: "The Nokia 3310 was released.", year: 2000 },
+  { q: "Only Fools and Horses was first broadcast.", year: 1981 },
+  { q: "The first Wetherspoon pub opened.", year: 1979 },
+  { q: "Arthur Guinness signed the lease on the St James's Gate brewery.", year: 1759 },
+  { q: "The UK voted to leave the EU.", year: 2016 },
+  { q: "Tinder launched.", year: 2012 },
+  { q: "The Beatles released their first album, 'Please Please Me'.", year: 1963 },
+  { q: "The first ever website went live.", year: 1991 },
+  { q: "Twitter launched.", year: 2006 },
+];
+
+// ------------------------------------------------------------------ Pub Quiz of Doom
+
+// The first option is the correct one; options are shuffled when the game is built.
+export const TRIVIA = [
+  { q: "Which planet is known as the Red Planet?", options: ["Mars", "Jupiter", "Venus", "Mercury"] },
+  { q: "How many pints are in a UK gallon?", options: ["8", "6", "10", "4"] },
+  { q: "What's the main ingredient of guacamole?", options: ["Avocado", "Pea", "Cucumber", "Lime"] },
+  { q: "Which spirit goes in a mojito?", options: ["Rum", "Gin", "Vodka", "Tequila"] },
+  { q: "Which spirit goes in a margarita?", options: ["Tequila", "Rum", "Vodka", "Gin"] },
+  { q: "What's the capital of Australia?", options: ["Canberra", "Sydney", "Melbourne", "Perth"] },
+  { q: "Which Beatle was the drummer?", options: ["Ringo Starr", "Paul McCartney", "George Harrison", "John Lennon"] },
+  { q: "What's the chemical symbol for gold?", options: ["Au", "Ag", "Gd", "Go"] },
+  { q: "What colour are Smurfs?", options: ["Blue", "Green", "Purple", "Yellow"] },
+  { q: "Which grain is Scotch malt whisky made from?", options: ["Barley", "Wheat", "Rye", "Corn"] },
+  { q: "Calvados is brandy made from which fruit?", options: ["Apples", "Pears", "Plums", "Grapes"] },
+  { q: "Prosecco comes from which country?", options: ["Italy", "France", "Spain", "Portugal"] },
+  { q: "What's the highest score possible with three darts?", options: ["180", "150", "171", "200"] },
+  { q: "Which is the largest ocean?", options: ["Pacific", "Atlantic", "Indian", "Arctic"] },
+  { q: "How many strings does a standard guitar have?", options: ["6", "5", "7", "8"] },
+  { q: "Who painted the Mona Lisa?", options: ["Leonardo da Vinci", "Michelangelo", "Raphael", "Picasso"] },
+  { q: "Corona beer comes from which country?", options: ["Mexico", "Spain", "Brazil", "USA"] },
+  { q: "What's the name of the pub in EastEnders?", options: ["The Queen Vic", "The Rovers Return", "The Woolpack", "The Nag's Head"] },
+  { q: "What's the name of the pub in Coronation Street?", options: ["The Rovers Return", "The Queen Vic", "The Bull", "The Dog in the Pond"] },
+  { q: "What's the name of the pub in Only Fools and Horses?", options: ["The Nag's Head", "The Queen Vic", "The Winchester", "The Crown"] },
+  { q: "How many players does a football team have on the pitch?", options: ["11", "10", "12", "9"] },
+  { q: "How many sides does a hexagon have?", options: ["6", "5", "7", "8"] },
+  { q: "Which country gave the world Jägermeister?", options: ["Germany", "Austria", "Switzerland", "Denmark"] },
+  { q: "How many different spirits go into a classic Long Island Iced Tea?", options: ["5", "3", "4", "2"] },
+];
+
+// ------------------------------------------------------------------ Who's Who
+
+// Sort your friends into a set. `drink` is the role whose holder drinks; `filthy` sets are
+// only used in filthy mode.
+export const ROLE_SETS = [
+  { title: "Which Spice Girl are you?", roles: ["Scary Spice", "Sporty Spice", "Baby Spice", "Ginger Spice", "Posh Spice"], drink: "Baby Spice" },
+  { title: "Only Fools and Horses", roles: ["Del Boy", "Rodney", "Trigger", "Uncle Albert", "Boycie", "Marlene"], drink: "Trigger" },
+  { title: "On a night out, who's…", roles: ["The one who organises it", "The one who vanishes", "The one who cries", "The one who starts a fight", "The one who pulls", "The one asleep by 11"], drink: "The one asleep by 11" },
+  { title: "Down the pub, who's…", roles: ["The landlord", "The regular", "The pub-quiz know-it-all", "The karaoke hero", "The fruit-machine addict", "The one who never buys a round"], drink: "The one who never buys a round" },
+  { title: "The Seven Dwarfs", roles: ["Grumpy", "Dopey", "Sleepy", "Happy", "Bashful", "Sneezy", "Doc"], drink: "Dopey" },
+  { title: "Friends", roles: ["Rachel", "Ross", "Monica", "Chandler", "Joey", "Phoebe"], drink: "Ross" },
+  { title: "In a zombie apocalypse, who's…", roles: ["The leader", "The one bitten first", "The one hoarding snacks", "The traitor", "The medic", "The one who survives alone"], drink: "The one bitten first" },
+  { title: "In the bedroom, who's…", roles: ["The highest body count", "The kinkiest", "The worst kisser", "The loudest", "The quickest", "The one with a secret OnlyFans"], drink: "The quickest", filthy: true },
+  { title: "On a stag or hen do, who's…", roles: ["The one who gets arrested", "The one who pulls a stranger", "The one who's sick on the plane", "The one who loses their passport", "The one who ends up naked", "The one who goes home early"], drink: "The one who goes home early", filthy: true },
+];
+
+// ------------------------------------------------------------------ Tee K.O.
+
+// Drawing ideas handed out to players (they can ignore them).
+export const TEE_IDEAS = [
+  "a pint with feelings", "the host's dating profile picture", "a kebab at 3am", "your worst hangover",
+  "a pigeon in a nightclub", "the bouncer's secret hobby", "a sexy potato", "a shark on a stag do",
+  "your ex as a vegetable", "a haunted fruit machine", "a cat doing shots", "a very confident sausage",
+  "the last person to leave the pub", "a rave in a retirement home", "a horse that's had enough",
+  "a slug with a six-pack", "the Queen Vic on fire", "a toilet with opinions",
+];
+
+// ------------------------------------------------------------------ Out of Context
+
+// Innocent questions about yourself…
+export const STI_QUESTIONS = [
+  "What did you have for dinner last night?",
+  "Describe your ideal Sunday.",
+  "Give an honest review of your last haircut.",
+  "What's the best thing about your job?",
+  "Describe your mum's cooking in one sentence.",
+  "What's your go-to karaoke song, and why?",
+  "What would you say to your 16-year-old self?",
+  "What's in your fridge right now?",
+  "Describe your last holiday.",
+  "What's your opinion on pineapple on pizza?",
+  "Review the last film you watched.",
+  "What's something you're secretly proud of?",
+  "Describe your morning routine.",
+  "How do you honestly feel about your neighbours?",
+  "What do you do to relax after a long day?",
+  "What's the best advice you've ever been given?",
+  "Describe your perfect night in.",
+  "What's your favourite smell?",
+];
+
+// …which someone else then reveals was actually posted as:
+export const STI_CONTEXTS = [
+  "a one-star review of a funeral home",
+  "a comment under a video of a man falling off a roof",
+  "the caption on a very risky selfie",
+  "a comment on a police Facebook appeal",
+  "a text sent to the wrong number at 3am",
+  "the closing line of a hostage video",
+  "a five-star review of a sex shop",
+  "a best-man speech at their ex's wedding",
+  "a eulogy",
+  "a post in a local neighbourhood group about a missing cat",
+  "the last message before being dumped",
+  "an answer on a job interview",
+  "a message to the King",
+  "a comment on their nan's Facebook post",
+  "the dating profile of a 60-year-old swinger",
+  "a customer complaint to a condom company",
+  "a confession to a priest",
+  "a review of a hospital's A&E department",
+];
+
 // ------------------------------------------------------------------ host lines
 
 // What The Landlord says. {name}, {winner}, {liar}, {thirsty}, {last} and {other} are
@@ -275,6 +409,36 @@ export const LINES = {
     "Well. That's going in the group chat.",
     "Remarkable. Not good. Just remarkable.",
   ],
+  year: [
+    "{winner} was closest. {name} was so far out they're basically a time traveller. Drink.",
+    "{name}, you were {miss} years off. That's not a guess, that's a cry for help.",
+    "{name}, {miss} years out. I've seen more accurate horoscopes.",
+    "Well done {winner}. {name}, drink, and maybe read a book. Any book.",
+  ],
+  trivia: [
+    "{name} didn't survive the Drinking Chamber. Drink up. It's what the pub quiz gods demand.",
+    "{name}, wrong answer, wrong glass. Drink.",
+    "The Drinking Chamber claims {name}. Nobody's surprised. Least of all the chamber.",
+  ],
+  trivia_clean: [
+    "Everybody got it right? Right. The questions are clearly too easy. That won't happen again.",
+    "Somehow, against all odds, you all survived. Enjoy it. It won't last.",
+  ],
+  roles: [
+    "The group has decided: {name} is {role}. Drink, and live with it.",
+    "{name} is {role}. Unanimous. Well, near enough. Drink.",
+    "The group has spoken, and {name} is {role}. We all knew. Drink.",
+  ],
+  brawl: [
+    "{winner} is the Pub Brawl champion. {name} went out first. Drink up, you were never in it.",
+    "{winner} takes the belt. Everyone they beat, drink. Especially you, {name}.",
+    "And your champion is {winner}. {name}, that answer went down faster than your standards.",
+  ],
+  sti: [
+    "{winner} took {victim}'s innocent answer and ruined it. Beautiful. Absolutely no one's surprised.",
+    "{name}, not one vote for that twist. The internet has no mercy, and neither do I. Drink.",
+    "Congratulations {winner}. {victim} will never answer an honest question again.",
+  ],
   final: [
     "That's the game. {winner} wins. Enjoy it, {winner}, it's the most anyone's ever rated you. {thirsty} drank the most, and {last} came last, which feels about right.",
     "Your winner is {winner}. Take a bow. Not too low, you'll fall over. {thirsty}, you drank the most. Have some water. And maybe a word with yourself.",
@@ -288,6 +452,12 @@ export const ROUND_INFO = {
   wyr: { title: "Would You Rather", emoji: "⚖️", rules: "Pick a side. The minority drinks 1, the majority scores 100." },
   quip: { title: "Quip Clash", emoji: "✍️", rules: "Write the funniest answer, then vote. 100 points per vote. Zero votes? Drink 2." },
   fib: { title: "Lie Detector", emoji: "🤥", rules: "Write a fake answer to fool everyone, then find the truth. Truth = 200 pts. Fooled = drink 1. Every sucker you fool = 100 pts." },
+  year: { title: "Year Guess", emoji: "📅", rules: "Guess the year. Closest scores 300 (bang on = 500). Furthest off drinks 2." },
+  trivia: { title: "Pub Quiz of Doom", emoji: "☠️", rules: "Answer the question. Get it wrong and you enter the Drinking Chamber, where the losers drink 3." },
+  roles: { title: "Who's Who", emoji: "🎭", rules: "Sort your mates into the set. Agree with the group for points. Whoever gets the drinking role drinks 2." },
+  brawl: { title: "Pub Brawl", emoji: "🥊", rules: "Write an answer, then they fight in a knockout bracket. Every answer knocked out drinks 1. Champion takes 500." },
+  tee: { title: "Tee K.O.", emoji: "👕", rules: "Draw a picture and write a slogan. Then build a shirt from your mates' work — shirts fight to the death. Knocked-out shirts drink 1." },
+  sti: { title: "Out of Context", emoji: "📱", rules: "Answer an innocent question. Then twist someone else's answer by saying where it was 'posted'. Most votes wins; zero votes drinks 2." },
   social: { title: "Social", emoji: "🍻", rules: "Everybody follow the rule on screen!" },
 };
 
