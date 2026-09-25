@@ -61,7 +61,10 @@ export async function startHost(app) {
     // The knockout games need at least three players to be worth it.
     if (names.length >= 3) types.push("brawl", "tee");
     if (settings.social) types.push("social");
-    const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, names });
+    // Remember what this screen has played, so the next game night serves fresh prompts first.
+    const seenList = store.get("dg-seen") ?? [];
+    const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, names, seen: new Set(seenList) });
+    store.set("dg-seen", [...seenList, ...plan.map((r) => r.key).filter(Boolean)].slice(-5000));
     await api.reset(code, token);
     scored.clear();
     const [name, other] = shuffle(names);

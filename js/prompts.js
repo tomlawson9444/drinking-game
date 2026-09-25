@@ -446,6 +446,22 @@ export const LINES = {
   ],
 };
 
+// ------------------------------------------------------------------ merge in the extra packs
+
+import { EXTRA } from "./prompts-extra.js";
+for (const level of ["mild", "filthy"]) {
+  const deck = level === "mild" ? MILD : FILTHY;
+  for (const [k, list] of Object.entries(EXTRA[level])) deck[k].push(...list);
+}
+FIBS.push(...EXTRA.fib);
+YEARS.push(...EXTRA.years);
+TRIVIA.push(...EXTRA.trivia);
+ROLE_SETS.push(...EXTRA.roleSets);
+TEE_IDEAS.push(...EXTRA.teeIdeas);
+STI_QUESTIONS.push(...EXTRA.stiQuestions);
+STI_CONTEXTS.push(...EXTRA.stiContexts);
+for (const [k, list] of Object.entries(EXTRA.lines)) LINES[k].push(...list);
+
 export const ROUND_INFO = {
   likely: { title: "Most Likely To", emoji: "👉", rules: "Vote for the friend who fits best. Most-voted drinks 2. Vote with the crowd for 100 points." },
   nhie: { title: "Never Have I Ever", emoji: "🙊", rules: "Be honest! If you have, drink 1 — but get 50 points for confessing." },

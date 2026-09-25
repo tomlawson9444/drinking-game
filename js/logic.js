@@ -4,13 +4,24 @@ import { MILD, FILTHY, FIBS, YEARS, TRIVIA, ROLE_SETS, TEE_IDEAS, STI_QUESTIONS,
 
 const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, social: 1 };
 
-// opts: { filthy, names: [player names] }
+// A stable key for a prompt, used to remember what a group has already played.
+export const promptKey = (p) => (typeof p === "string" ? p : Array.isArray(p) ? p.join(" / ") : p.q ?? p.title ?? JSON.stringify(p));
+
+// opts: { filthy, names: [player names], seen: Set of promptKeys already played on this screen }
 export function buildPlan(rounds, types, opts = {}) {
-  const base = opts.filthy ? FILTHY : MILD;
+  const seen = opts.seen ?? new Set();
+  // Deck order (last = drawn first): unseen prompts before seen ones, and in filthy mode the
+  // filthy pack before the mild one. Each tier is shuffled.
+  const tiers = (t) => {
+    const packs = { fib: [FIBS], year: [YEARS], trivia: [TRIVIA], roles: [ROLE_SETS.filter((r) => opts.filthy || !r.filthy)] }[t] ??
+      (opts.filthy ? [FILTHY[t], MILD[t]] : [MILD[t]]);
+    const fresh = packs.map((pack) => pack.filter((p) => !seen.has(promptKey(p))));
+    const stale = packs.map((pack) => pack.filter((p) => seen.has(promptKey(p))));
+    return [...fresh, ...stale].reverse().flatMap((tier) => shuffle(tier));
+  };
   const decks = {};
   const draw = (t) => {
-    const src = { fib: FIBS, year: YEARS, trivia: TRIVIA, roles: ROLE_SETS.filter((r) => opts.filthy || !r.filthy) }[t] ?? base[t];
-    if (!decks[t]?.length) decks[t] = shuffle(src);
+    if (!decks[t]?.length) decks[t] = tiers(t);
     return decks[t].pop();
   };
   const names = opts.names?.length ? opts.names : ["someone"];
@@ -25,6 +36,7 @@ export function buildPlan(rounds, types, opts = {}) {
     const type = options[Math.floor(Math.random() * options.length)];
     // Pub Brawl answers quip prompts, so it shares the quip deck.
     const p = type === "tee" || type === "sti" ? null : draw(type === "brawl" ? "quip" : type);
+    const key = p ? promptKey(p) : null;
     if (type === "fib") plan.push({ type, prompt: p.q, truth: p.a });
     else if (type === "year") plan.push({ type, prompt: p.q, year: p.year });
     else if (type === "trivia") plan.push({ type, prompt: p.q, answer: p.options[0], options: shuffle(p.options) });
@@ -37,6 +49,7 @@ export function buildPlan(rounds, types, opts = {}) {
     else if (type === "sti") plan.push({ type, prompt: "Out of Context", questions: shuffle(STI_QUESTIONS), contexts: shuffle(STI_CONTEXTS) });
     else if (type === "wyr") plan.push({ type, prompt: p.map(fill) });
     else plan.push({ type, prompt: fill(p) });
+    if (key) plan[plan.length - 1].key = key;
     last = type;
   }
   return plan;

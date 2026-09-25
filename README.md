@@ -81,7 +81,16 @@ supabase/migrations database schema, RLS and RPC functions
 
 To run locally: `python3 -m http.server` in this folder and open http://localhost:8000.
 
+## Variety
+
+There are roughly 1,000 prompts across all the games (more than 100 per game type in most, filthy and mild).
+The host screen remembers every prompt it has used (in the browser's local storage, last 5,000) and always
+serves unplayed ones first. In filthy mode, unplayed filthy prompts come first, then unplayed mild ones,
+and only then repeats. On one TV that's about three weeks of nightly 15-round games before anything repeats.
+
 ## Adding prompts
+
+New packs can go in `js/prompts-extra.js`, which is merged into the decks automatically.
 
 Edit the arrays in `js/prompts.js` (years, trivia, role sets, T-shirt ideas and Out of Context
 questions/contexts live there too; trivia lists the correct option first). Quip prompts use `___` for the blank; Would You Rather entries are
