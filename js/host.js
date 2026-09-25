@@ -2,7 +2,7 @@
 // gives The Landlord (the game-master voice) his cues.
 import { api, watchRoom, newToken, store } from "./api.js";
 import { ROUND_INFO, shuffle } from "./prompts.js";
-import { buildPlan, allIn, expected, quipAnswers, fibOptions, scoreRound, brawlInit, brawlNext, brawlRecord, teeOffers, teeShirts, stiTwists, stiPosts } from "./logic.js";
+import { buildPlan, allIn, expected, quipAnswers, fibOptions, scoreRound, brawlInit, brawlNext, brawlRecord, teeOffers, teeShirts, stiTwists, stiPosts, whitePile, dealHands, cardPlays, discardPlays, fillCard } from "./logic.js";
 import { createGM } from "./gm.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf } from "./ui.js";
 
@@ -13,9 +13,11 @@ const MAX_HOLD_MS = 30000; // longest we'll wait for the Landlord to finish talk
 const MATCH_S = 15; // each knockout match
 const CHAMBER_S = 20; // the Drinking Chamber
 const DRAW_S = 90; // minimum time to draw a Tee K.O. shirt
-const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted/;
+const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted|Czar's favourite/;
 
-const DEFAULT_SETTINGS = { rounds: 10, timer: 45, social: true, filthy: true, voice: true, tvVoice: true };
+const DEFAULT_SETTINGS = { mode: "party", rounds: 10, timer: 45, social: true, filthy: true, voice: true, tvVoice: true };
+// Cards Against Sobriety needs a Czar plus at least two players.
+const minPlayers = (mode) => (mode === "cards" ? 3 : 2);
 
 export async function startHost(app) {
   // Every load of the host screen (including a refresh) starts a fresh room. The previous
@@ -55,25 +57,37 @@ export async function startHost(app) {
     return api.setState(code, token, phase, round, state);
   };
 
+  // Remember what this screen has played, so the next game night serves fresh prompts first.
+  const seenSet = () => new Set(store.get("dg-seen") ?? []);
+  const markSeen = (keys) => store.set("dg-seen", [...(store.get("dg-seen") ?? []), ...keys.filter(Boolean)].slice(-5000));
+
   async function startGame() {
     const names = live.players.map((p) => p.name);
-    const types = ["quip", "likely", "fib", "wyr", "nhie", "year", "trivia", "roles", "sti"];
+    const cards = settings.mode === "cards";
+    const types = cards ? ["cards"] : ["quip", "likely", "fib", "wyr", "nhie", "year", "trivia", "roles", "sti"];
     // The knockout games need at least three players to be worth it.
-    if (names.length >= 3) types.push("brawl", "tee");
-    if (settings.social) types.push("social");
-    // Remember what this screen has played, so the next game night serves fresh prompts first.
-    const seenList = store.get("dg-seen") ?? [];
-    const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, names, seen: new Set(seenList) });
-    store.set("dg-seen", [...seenList, ...plan.map((r) => r.key).filter(Boolean)].slice(-5000));
+    if (!cards && names.length >= 3) types.push("brawl", "tee");
+    if (!cards && settings.social) types.push("social");
+    const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, names, seen: seenSet() });
+    markSeen(plan.map((r) => r.key));
     await api.reset(code, token);
     scored.clear();
     const [name, other] = shuffle(names);
     gm.line("welcome", { name, other });
-    await beginRound({ plan, settings: { ...settings }, idx: 0 }, 1);
+    const extra = cards ? { hands: {}, pile: whitePile(settings.filthy, seenSet()) } : {};
+    await beginRound({ plan, settings: { ...settings }, idx: 0, ...extra }, 1);
   }
 
   async function beginRound(base, roundNo) {
     const r = base.plan[base.idx];
+    if (r.type === "cards") {
+      // Top up everyone's hand, and pass the Czar round the room in joining order.
+      const { hands, pile } = dealHands(base.hands, base.pile, live.players, base.settings.filthy);
+      markSeen(base.pile.slice(0, base.pile.length - pile.length));
+      const czar = live.players[base.idx % live.players.length]?.id;
+      await set("intro", roundNo, { ...base, hands, pile, cur: { ...r, czar }, until: Date.now() + INTRO_MS });
+      return;
+    }
     await set("intro", roundNo, { ...base, cur: { ...r }, until: Date.now() + INTRO_MS });
   }
 
@@ -113,6 +127,11 @@ export async function startHost(app) {
           const twists = stiTwists(live.subs, live.players, cur.contexts);
           if (twists) await set("twist", room.round, { ...st, cur: { ...cur, twists }, deadline: now + timer, span: timer / 1000 });
           else await reveal(room, st, { ...cur, posts: [] });
+        } else if (cur.type === "cards") {
+          const plays = cardPlays(live.subs, st.hands, cur);
+          const czarHere = live.players.some((p) => p.id === cur.czar);
+          if (plays.length && czarHere) await set("vote", room.round, { ...st, cur: { ...cur, plays }, deadline: now + voteTime, span: voteTime / 1000 });
+          else await reveal(room, st, { ...cur, plays });
         } else if (cur.type === "brawl") {
           await startBracket(room, st, { ...cur, entries: quipAnswers(live.subs) });
         } else if (cur.type === "tee") {
@@ -173,6 +192,7 @@ export async function startHost(app) {
   }
 
   async function reveal(room, st, cur) {
+    if (cur.type === "cards") st = { ...st, hands: discardPlays(st.hands, cur.plays) };
     const { deltas, view } = scoreRound(cur, live.players, live.subs);
     const list = Object.entries(deltas).map(([id, d]) => ({ id, score: d.score, sips: d.sips }));
     if (list.length && !scored.has(room.round)) await api.apply(code, token, list);
@@ -183,11 +203,12 @@ export async function startHost(app) {
   async function next(room, st) {
     const idx = st.idx + 1;
     if (idx >= st.plan.length) await set("final", room.round, { ...st });
-    else await beginRound({ plan: st.plan, settings: st.settings, idx }, room.round + 1);
+    else await beginRound({ plan: st.plan, settings: st.settings, idx, hands: st.hands, pile: st.pile }, room.round + 1);
   }
 
   // The Landlord's cues, fired once per phase change.
   function announce(room) {
+    const nameOf = (id) => live.players.find((p) => p.id === id)?.name;
     const st = room.state ?? {};
     const cur = st.cur ?? {};
     const info = ROUND_INFO[cur.type] ?? {};
@@ -200,6 +221,7 @@ export async function startHost(app) {
         else if (cur.type === "year") gm.say(`What year? ${cur.prompt}`, { caption: false });
         else if (cur.type === "tee") gm.say("Draw something on your phone, and write a slogan. Filth encouraged.", { caption: false });
         else if (cur.type === "sti") gm.say("Answer the question on your phone. Honestly. What could possibly go wrong?", { caption: false });
+        else if (cur.type === "cards") gm.say(`${nameOf(cur.czar) ?? "The Czar"} is the Card Czar. ${cur.prompt}`, { caption: false });
         else gm.say(cur.prompt, { caption: false });
         break;
       case "vote": {
@@ -208,6 +230,7 @@ export async function startHost(app) {
           trivia: "Wrong answers, welcome to the Drinking Chamber.",
           tee: "Now make a shirt out of someone else's rubbish.",
           sti: "Vote for the most out-of-context. No mercy.",
+          cards: "Card Czar. Pick your favourite. And the one you hate.",
         };
         gm.say(lines[cur.type] ?? "Right. Vote for the least disappointing one.", { caption: false });
         break;
@@ -220,7 +243,10 @@ export async function startHost(app) {
         break;
       case "reveal":
         if (cur.type === "social") gm.say(cur.prompt, { caption: false });
-        else roastRound(cur);
+        else if (cur.type === "cards" && cur.view?.win) {
+          const win = cur.view.plays.find((p) => p.pid === cur.view.win);
+          gm.say(fillCard(cur.prompt, win.cards), { caption: false }).then(() => roastRound(cur));
+        } else roastRound(cur);
         break;
       case "final": {
         const ranked = [...live.players].sort((a, b) => b.score - a.score);
@@ -281,6 +307,9 @@ export async function startHost(app) {
       case "tee":
         vars = { winner: nameOf(v.champion?.pid), name: nameOf(v.history?.[0]?.loser) };
         break;
+      case "cards":
+        vars = { winner: nameOf(v.win), name: nameOf(v.worst), czar: nameOf(cur.czar) };
+        break;
       case "sti": {
         const top = (v.results ?? []).find((x) => x.winner);
         vars = { winner: nameOf(top?.pid), victim: nameOf(top?.from), name: any(drinking("Zero votes")) };
@@ -297,7 +326,7 @@ export async function startHost(app) {
     const act = btn.dataset.act;
     try {
       if (act === "start") {
-        if (live.players.length < 2) return toast("Need at least 2 players!");
+        if (live.players.length < minPlayers(settings.mode)) return toast(`Need at least ${minPlayers(settings.mode)} players!`);
         btn.disabled = true;
         await startGame();
       } else if (act === "skip") {
@@ -320,6 +349,10 @@ export async function startHost(app) {
       } else if (act === "kick") {
         const p = live.players.find((x) => x.id === btn.dataset.id);
         if (p && confirm(`Kick ${p.name}?`)) await api.kick(code, token, p.id);
+      } else if (act === "mode") {
+        settings.mode = btn.dataset.val;
+        store.set("dg-settings", settings);
+        render();
       } else if (act === "rounds" || act === "timer") {
         settings[act] = +btn.dataset.val;
         store.set("dg-settings", settings);
@@ -380,14 +413,18 @@ export async function startHost(app) {
                 <button class="kick" data-act="kick" data-id="${p.id}" aria-label="Kick ${esc(p.name)}">✕ Kick</button></div>`).join("") || `<p class="muted">Waiting for players to join…</p>`}
             </div>
             <div class="settings">
+              <div class="setting"><span>Game</span>
+                <button class="pill ${settings.mode !== "cards" ? "on" : ""}" data-act="mode" data-val="party">🎉 Party Mix</button>
+                <button class="pill ${settings.mode === "cards" ? "on" : ""}" data-act="mode" data-val="cards">🃏 Cards Against Sobriety</button></div>
+              ${settings.mode === "cards" ? `<p class="muted small">Everyone gets 7 cards on their phone. Each round one player's phone is the 👑 Card Czar and picks the winner — the Czar passes round the room. Needs 3+ players.</p>` : ""}
               <div class="setting"><span>Rounds</span>${[6, 10, 15, 20].map((n) => `<button class="pill ${settings.rounds === n ? "on" : ""}" data-act="rounds" data-val="${n}">${n}</button>`).join("")}</div>
               <div class="setting"><span>Timer</span>${[30, 45, 60, 90].map((n) => `<button class="pill ${settings.timer === n ? "on" : ""}" data-act="timer" data-val="${n}">${n}s</button>`).join("")}</div>
               <div class="setting"><span>Filth level</span>${toggle("filthy", "🔥 Filthy", "😇 Mild")}</div>
               <div class="setting"><span>Landlord voice</span>${toggle("voice", "🔊 On")}${settings.voice ? toggle("tvVoice", "📺 TV speaks", "📺 TV silent") : ""}</div>
               ${settings.voice ? `<p class="muted small">${gm.canSpeak() ? "" : "⚠️ This TV browser has no voice. "}No sound from the TV? On one phone, tap <b>🔈 Be the speaker</b> and the Landlord talks through that phone instead (or a Bluetooth speaker connected to it).</p>` : ""}
-              <div class="setting"><span>Social rounds</span>${toggle("social", "On")}</div>
+              ${settings.mode === "cards" ? "" : `<div class="setting"><span>Social rounds</span>${toggle("social", "On")}</div>`}
             </div>
-            <button class="btn big" data-act="start" ${live.players.length < 2 ? "disabled" : ""}>Everybody's in — start! 🍻</button>
+            <button class="btn big" data-act="start" ${live.players.length < minPlayers(settings.mode) ? "disabled" : ""}>Everybody's in — start! 🍻</button>
             <p class="muted small">Adults only — ${settings.filthy ? "filthy mode is very much not safe for your nan" : "mild mode is safe-ish for your nan"}. Host wants to play too? Join from your phone as well. Drink responsibly — a "sip" can be anything, water counts.</p>
             <button class="btn ghost sm" data-act="new-room">New room</button>
           </div>
@@ -455,6 +492,7 @@ export async function startHost(app) {
   // What the TV shows while phones are busy (answering, voting, fighting).
   function hostStage(room, cur, byId) {
     const phase = room.phase;
+    const name = (id) => esc(byId[id]?.name ?? "?");
     const cards = (items) => `<div class="answers">${items.map((t, i) => `<div class="answer pop" style="animation-delay:${i * 80}ms">${esc(t)}</div>`).join("")}</div>`;
     if (phase === "match") {
       const m = cur.match;
@@ -477,6 +515,9 @@ export async function startHost(app) {
           return `<h1 class="prompt">Make your shirt!</h1><p class="kicker">Pick a drawing and a slogan — made by your mates — on your phone.</p>`;
         case "sti":
           return `<p class="kicker">Vote for the best twist on your phone!</p>${stiCards(cur.posts ?? [], byId, false)}`;
+        case "cards":
+          return `${blackCard(cur.prompt, cur.pick)}<p class="kicker">👑 ${name(cur.czar)} is choosing…</p>
+            <div class="answers">${(cur.plays ?? []).map((p, i) => `<div class="answer pop" style="animation-delay:${i * 80}ms">${filled(cur.prompt, p.cards)}</div>`).join("")}</div>`;
         default:
           return `<h2 class="prompt sm">${esc(cur.prompt)}</h2><p class="kicker">Vote for your favourite on your phone!</p>${cards((cur.answers ?? []).map((a) => a.text))}`;
       }
@@ -497,6 +538,8 @@ export async function startHost(app) {
         return `<h1 class="prompt">Design a T-shirt!</h1><p class="kicker">Draw a picture and write a slogan on your phone. Everything gets mixed up later…</p>`;
       case "sti":
         return `<h1 class="prompt">Answer your question on your phone.</h1><p class="kicker">Honestly. Innocently. What could possibly go wrong?</p>`;
+      case "cards":
+        return `${blackCard(cur.prompt, cur.pick)}<p class="kicker">👑 Card Czar: ${name(cur.czar)} — everyone else, play ${cur.pick === 1 ? "a card" : `${cur.pick} cards`} from your phone!</p>`;
       default: {
         const hint = {
           likely: "Vote on your phone!",
@@ -508,6 +551,17 @@ export async function startHost(app) {
         return `<h1 class="prompt">${esc(cur.prompt)}</h1><p class="kicker">${hint ?? ""}</p>`;
       }
     }
+  }
+
+  // Cards Against Sobriety: the black card, and a black card filled in with white cards.
+  function blackCard(text, pick) {
+    return `<div class="black-card pop">${esc(text).replace(/___/g, "<span class=\"blank\">______</span>")}${pick > 1 ? `<div class="pick">PICK ${pick}</div>` : ""}</div>`;
+  }
+  function filled(text, cards) {
+    const whites = cards.map((c) => `<b class="white-fill">${esc(String(c).replace(/[.!?]$/, ""))}</b>`);
+    if (!String(text).includes("___")) return `${esc(text)} ${whites.join(" / ")}`;
+    let i = 0;
+    return esc(text).replace(/___/g, () => whites[i++] ?? "___");
   }
 
   // Out of Context posts, optionally with who wrote what and the votes.
@@ -593,6 +647,14 @@ export async function startHost(app) {
       case "sti":
         main = (v.results ?? []).length ? stiCards(v.results, byId, true) : `<p>No twists?! Everybody drinks.</p>`;
         break;
+      case "cards": {
+        const plays = [...(v.plays ?? [])].sort((a, b) => (b.pid === v.win) - (a.pid === v.win) || (a.pid === v.worst) - (b.pid === v.worst));
+        main = `<p class="kicker">👑 Czar: ${chip(byId[cur.czar])}</p>
+          <div class="answers results">${plays.map((p, i) => `<div class="answer pop ${p.pid === v.win ? "win" : ""} ${p.pid === v.worst ? "worst" : ""}" style="animation-delay:${i * 120}ms">
+            <div class="a-text">${filled(cur.prompt, p.cards)}</div>
+            <div class="a-meta">${chip(byId[p.pid])} ${p.pid === v.win ? "👑 Czar's favourite" : p.pid === v.worst ? "💩 Czar's least favourite" : ""}</div></div>`).join("") || `<p>Nobody played a card?!</p>`}</div>`;
+        break;
+      }
     }
     const drinkers = Object.entries(cur.deltas ?? {}).filter(([, d]) => d.sips > 0);
     return `<div class="round-type">${info.emoji} ${esc(info.title)}</div>${main}

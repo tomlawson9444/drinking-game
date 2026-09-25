@@ -297,3 +297,24 @@ code { background: var(--card); padding: 2px 6px; border-radius: 6px; }
 .speaker-btn { font-size: 1.3rem; }
 .speaker-btn.on { filter: drop-shadow(0 0 6px var(--beer)); }
 .speaker-card { margin-top: 20px; }
+
+/* Cards Against Sobriety */
+.black-card {
+  position: relative; background: #111; color: #fff; border-radius: 18px; padding: 28px 24px; margin: 12px auto 20px;
+  max-width: 720px; font-size: clamp(1.4rem, 3.6vw, 2.6rem); font-weight: 900; text-align: left; line-height: 1.25;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.15);
+}
+.black-card.sm { font-size: 1.15rem; padding: 16px 18px; margin: 8px 0 12px; }
+.black-card .blank { border-bottom: 3px solid #fff; color: transparent; }
+.black-card .pick { position: absolute; right: 16px; bottom: 10px; font-size: 0.8rem; font-family: var(--display); color: var(--beer); }
+.white-fill { background: #fff7e8; color: #1a0b2e; padding: 0 6px; border-radius: 6px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.answer .white-fill { background: var(--beer); }
+.answer.worst { background: #c9b6b6; }
+.hand { display: flex; flex-direction: column; gap: 8px; }
+.white-card {
+  position: relative; text-align: left; background: #fff7e8; color: #1a0b2e; border: 3px solid transparent; border-radius: 14px;
+  padding: 14px 16px; font-size: 1.05rem; font-weight: 900; cursor: pointer;
+}
+.white-card.on { border-color: var(--beer); background: #fff; box-shadow: 0 0 0 3px rgba(255, 180, 0, 0.35); }
+.white-card .order { display: inline-grid; place-items: center; width: 24px; height: 24px; margin-right: 8px; border-radius: 50%; background: var(--beer); font-size: 0.8rem; }
+.answer.win .white-fill { background: #fff7e8; }

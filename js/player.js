@@ -1,7 +1,7 @@
 // The phone controller: join a room, answer, vote, find out if you drink.
 import { api, watchRoom, store } from "./api.js";
 import { ROUND_INFO } from "./prompts.js";
-import { norm } from "./logic.js";
+import { norm, fillCard } from "./logic.js";
 import { createGM } from "./gm.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf } from "./ui.js";
 
@@ -19,7 +19,7 @@ export function startPlayer(app, me, onLeave) {
   // Per-round scratch state for multi-step answers (Who's Who picks, Tee K.O. drawing / shirt).
   let scratch = { round: null };
   const fresh = (round) => {
-    if (scratch.round !== round) scratch = { round, picks: [], img: null, pen: PENS[0], size: 6, slogan: "", make: {} };
+    if (scratch.round !== round) scratch = { round, picks: [], img: null, pen: PENS[0], size: 6, slogan: "", make: {}, cards: [], win: null };
     return scratch;
   };
 
@@ -55,6 +55,28 @@ export function startPlayer(app, me, onLeave) {
     else if (act === "choice") send("input", { choice: +val });
     else if (act === "vote") send("vote", { target: val });
     else if (act === "opt") send("input", { choice: val });
+    else if (act === "card") {
+      // Tap to select (in order, for pick-2 cards); tap again to unselect.
+      const sc = fresh(live.room.round);
+      const i = sc.cards.indexOf(+val);
+      if (i >= 0) sc.cards.splice(i, 1);
+      else if (sc.cards.length < live.room.state.cur.pick) sc.cards.push(+val);
+      render();
+    } else if (act === "card-play") {
+      const hand = live.room.state.hands?.[playerId] ?? [];
+      send("input", { cards: fresh(live.room.round).cards.map((i) => hand[i]) });
+    } else if (act === "czar") {
+      const sc = fresh(live.room.round);
+      const plays = live.room.state.cur.plays ?? [];
+      if (!sc.win) {
+        sc.win = val;
+        if (plays.length >= 3) render(); // now pick the least favourite
+        else send("vote", { win: val });
+      } else send("vote", { win: sc.win, worst: val });
+    } else if (act === "czar-undo") {
+      fresh(live.room.round).win = null;
+      render();
+    }
     else if (act === "chamber") send("vote", { pick: +val });
     else if (act === "fight") send(`m${live.room.state.cur.match.m}`, { pick: val });
     else if (act === "role-pick") {
@@ -203,8 +225,26 @@ export function startPlayer(app, me, onLeave) {
 
       case "input": {
         const timer = timerBar(st.deadline, st.span ?? st.settings?.timer ?? 45);
+        if (cur.type === "cards" && cur.czar === playerId) {
+          body = timer + `<div class="black-card sm">${esc(cur.prompt)}</div><div class="locked pop"><div class="big-emoji">👑</div><h2>You're the Card Czar!</h2><p class="muted">Sit back while everyone plays. Then you judge.</p></div>`;
+          break;
+        }
         if (mySub("input")) {
           body = timer + lockedIn();
+          break;
+        }
+        if (cur.type === "cards") {
+          const sc = fresh(room.round);
+          const hand = st.hands?.[playerId] ?? [];
+          const preview = sc.cards.length === cur.pick ? fillCard(cur.prompt, sc.cards.map((i) => hand[i])) : null;
+          body = `${timer}<div class="black-card sm">${esc(cur.prompt)}${cur.pick > 1 ? `<div class="pick">PICK ${cur.pick}</div>` : ""}</div>
+            <p class="muted center-text">Tap ${cur.pick === 1 ? "your funniest card" : `${cur.pick} cards in order`}:</p>
+            <div class="hand">${hand.map((c, i) => {
+              const n = sc.cards.indexOf(i);
+              return `<button class="white-card ${n >= 0 ? "on" : ""}" data-act="card" data-val="${i}">${n >= 0 && cur.pick > 1 ? `<span class="order">${n + 1}</span>` : ""}${esc(c)}</button>`;
+            }).join("")}</div>
+            ${preview ? `<p class="muted center-text">Preview: “${esc(preview)}”</p>` : ""}
+            <button class="btn big" data-act="card-play" ${preview ? "" : "disabled"}>Play ${cur.pick === 1 ? "it" : "them"} 🃏</button>`;
           break;
         }
         if (cur.type === "likely") {
@@ -293,6 +333,19 @@ export function startPlayer(app, me, onLeave) {
           else
             body = `${timer}<h2 class="center-text">☠️ The Drinking Chamber</h2><p class="center-text">Pick a number. If anyone else picks the same one, you both drink 3.</p>
               <div class="glasses">${[1, 2, 3, 4, 5].map((n) => `<button class="choice glass" data-act="chamber" data-val="${n}">${n}</button>`).join("")}</div>`;
+          break;
+        }
+        if (cur.type === "cards") {
+          const plays = cur.plays ?? [];
+          const sc = fresh(room.round);
+          const czarName = live.players.find((p) => p.id === cur.czar)?.name ?? "The Czar";
+          if (cur.czar !== playerId) body = timer + `<div class="locked pop"><div class="big-emoji">👑</div><h2>${esc(czarName)} is judging…</h2><p class="muted">Look at the big screen and pray.</p></div>`;
+          else if (mySub("vote")) body = timer + lockedIn("Judgement passed! 👑");
+          else
+            body = `${timer}<div class="black-card sm">${esc(cur.prompt)}</div>
+              <p class="prompt-sm">${sc.win ? "Now your LEAST favourite 💩 (they drink 2)" : "Pick your favourite 👑"}</p>
+              <div class="choices">${plays.filter((p) => p.pid !== sc.win).map((p) => `<button class="choice answer-choice" data-act="czar" data-val="${p.pid}">${esc(fillCard(cur.prompt, p.cards))}</button>`).join("")}</div>
+              ${sc.win ? `<button class="btn ghost sm" data-act="czar-undo">↩ Change favourite</button>` : ""}`;
           break;
         }
         if (cur.type === "tee") {

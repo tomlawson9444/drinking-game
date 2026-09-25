@@ -20,7 +20,18 @@ text-to-speech and his lines are pre-written in `js/prompts.js`, so there are no
 6. **Refreshing the host screen closes the room**: the game is cancelled, everyone is sent back to the start
    screen, and a fresh room with a new code opens. (**New room** in the lobby does the same.)
 
-### Round types
+### Two ways to play
+
+Pick the **Game** in the lobby:
+
+- **🎉 Party Mix**: a random mix of all the round types below.
+- **🃏 Cards Against Sobriety**: our own fill-in-the-blank card game (all original cards: 120 black,
+  280 white, mild and filthy). Everyone holds 7 white cards on their phone. Each round one player's phone
+  is the **👑 Card Czar** (it passes round the room in joining order — never the TV). Everyone else plays
+  their funniest card(s); the Czar picks a **favourite (+100)** and a **least favourite (drinks 2)**. Hands
+  top back up to 7 every round. Needs 3+ players. Cards live in `js/cards.js`.
+
+### Round types (Party Mix)
 
 | Round | What happens | Who drinks |
 |---|---|---|
@@ -69,6 +80,8 @@ js/player.js        phone controller
 js/logic.js         round plan + scoring rules (pure, testable)
 js/gm.js            The Landlord: voice-over + captions
 js/prompts.js       prompt decks (mild + filthy) and the Landlord's lines — add your own in-jokes!
+js/prompts-extra.js extra prompt packs, merged into the decks
+js/cards.js         Cards Against Sobriety black and white cards
 supabase/migrations database schema, RLS and RPC functions
 ```
 

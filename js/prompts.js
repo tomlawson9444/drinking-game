@@ -434,6 +434,13 @@ export const LINES = {
     "{winner} takes the belt. Everyone they beat, drink. Especially you, {name}.",
     "And your champion is {winner}. {name}, that answer went down faster than your standards.",
   ],
+  cards: [
+    "{winner} wins the round. {name}, the Czar hated yours. So did I. Drink.",
+    "{czar} has spoken. {winner}, that was disgusting. Well done. {name}, drink.",
+    "The Czar loved {winner}'s card, and I'm now worried about both of them.",
+    "{name}, least favourite. That card was so bad it's a cry for help. Drink up.",
+    "{winner} takes it. {czar}, we'll be discussing your taste later.",
+  ],
   sti: [
     "{winner} took {victim}'s innocent answer and ruined it. Beautiful. Absolutely no one's surprised.",
     "{name}, not one vote for that twist. The internet has no mercy, and neither do I. Drink.",
@@ -473,6 +480,7 @@ export const ROUND_INFO = {
   roles: { title: "Who's Who", emoji: "🎭", rules: "Sort your mates into the set. Agree with the group for points. Whoever gets the drinking role drinks 2." },
   brawl: { title: "Pub Brawl", emoji: "🥊", rules: "Write an answer, then they fight in a knockout bracket. Every answer knocked out drinks 1. Champion takes 500." },
   tee: { title: "Tee K.O.", emoji: "👕", rules: "Draw a picture and write a slogan. Then build a shirt from your mates' work — shirts fight to the death. Knocked-out shirts drink 1." },
+  cards: { title: "Cards Against Sobriety", emoji: "🃏", rules: "Play your funniest card from your phone. The 👑 Card Czar picks a favourite (+100) and a least favourite (drinks 2)." },
   sti: { title: "Out of Context", emoji: "📱", rules: "Answer an innocent question. Then twist someone else's answer by saying where it was 'posted'. Most votes wins; zero votes drinks 2." },
   social: { title: "Social", emoji: "🍻", rules: "Everybody follow the rule on screen!" },
 };

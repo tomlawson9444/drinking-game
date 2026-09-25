@@ -1,6 +1,7 @@
 // Pure game rules: building the round plan and scoring a round.
 // No DOM or network here so it can be tested with plain Node.
 import { MILD, FILTHY, FIBS, YEARS, TRIVIA, ROLE_SETS, TEE_IDEAS, STI_QUESTIONS, STI_CONTEXTS, shuffle } from "./prompts.js";
+import { BLACK_MILD, BLACK_FILTHY, WHITE_MILD, WHITE_FILTHY, HAND_SIZE } from "./cards.js";
 
 const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, social: 1 };
 
@@ -13,7 +14,8 @@ export function buildPlan(rounds, types, opts = {}) {
   // Deck order (last = drawn first): unseen prompts before seen ones, and in filthy mode the
   // filthy pack before the mild one. Each tier is shuffled.
   const tiers = (t) => {
-    const packs = { fib: [FIBS], year: [YEARS], trivia: [TRIVIA], roles: [ROLE_SETS.filter((r) => opts.filthy || !r.filthy)] }[t] ??
+    const packs = { fib: [FIBS], year: [YEARS], trivia: [TRIVIA], roles: [ROLE_SETS.filter((r) => opts.filthy || !r.filthy)],
+      cards: opts.filthy ? [BLACK_FILTHY, BLACK_MILD] : [BLACK_MILD] }[t] ??
       (opts.filthy ? [FILTHY[t], MILD[t]] : [MILD[t]]);
     const fresh = packs.map((pack) => pack.filter((p) => !seen.has(promptKey(p))));
     const stale = packs.map((pack) => pack.filter((p) => seen.has(promptKey(p))));
@@ -47,6 +49,7 @@ export function buildPlan(rounds, types, opts = {}) {
       plan.push({ type, prompt: p.title, roles: shuffle([p.drink, ...others]), drink: p.drink });
     } else if (type === "tee") plan.push({ type, prompt: "Design a T-shirt", ideas: shuffle(TEE_IDEAS) });
     else if (type === "sti") plan.push({ type, prompt: "Out of Context", questions: shuffle(STI_QUESTIONS), contexts: shuffle(STI_CONTEXTS) });
+    else if (type === "cards") plan.push({ type, prompt: p, pick: blanks(p) });
     else if (type === "wyr") plan.push({ type, prompt: p.map(fill) });
     else plan.push({ type, prompt: fill(p) });
     if (key) plan[plan.length - 1].key = key;
@@ -59,6 +62,9 @@ export const norm = (s) => String(s ?? "").toLowerCase().replace(/^(a|an|the)\s+
 
 // Who we're waiting on in the current phase.
 export function expected(phase, round, players) {
+  // Cards Against Sobriety: everyone but the Czar plays; only the Czar judges.
+  if (phase === "input" && round.type === "cards") return { kind: "input", ids: players.filter((p) => p.id !== round.czar).map((p) => p.id) };
+  if (phase === "vote" && round.type === "cards") return { kind: "vote", ids: players.filter((p) => p.id === round.czar).map((p) => p.id) };
   if (phase === "input") return { kind: "input", ids: players.map((p) => p.id) };
   if (phase === "vote" && round.type === "quip") {
     // Everyone votes, except someone whose own answer is the only one they could pick.
@@ -201,6 +207,59 @@ export function stiPosts(subs, twists) {
       .filter((s) => s.kind === "twist" && twists?.[s.player_id] && String(s.value?.text ?? "").trim())
       .map((s) => ({ pid: s.player_id, ...twists[s.player_id], text: String(s.value.text).trim().slice(0, 100) })),
   );
+}
+
+// ------------------------------------------------------------------ Cards Against Sobriety
+
+// How many white cards a black card needs (one per blank; a question needs one).
+export const blanks = (text) => Math.max(1, (String(text).match(/___/g) ?? []).length);
+
+// Fill a black card's blanks with the played white cards (as plain text; callers escape).
+export function fillCard(text, cards) {
+  const whites = cards.map((c) => String(c).replace(/[.!?]$/, ""));
+  if (!String(text).includes("___")) return `${text} ${whites.join(" / ")}.`;
+  let i = 0;
+  return String(text).replace(/___/g, () => whites[i++] ?? "___");
+}
+
+// A fresh draw pile of white cards: unseen first (filthy before mild), then seen ones.
+export function whitePile(filthy, seen = new Set()) {
+  const packs = filthy ? [WHITE_FILTHY, WHITE_MILD] : [WHITE_MILD];
+  const fresh = packs.map((p) => p.filter((c) => !seen.has(c)));
+  const stale = packs.map((p) => p.filter((c) => seen.has(c)));
+  return [...fresh, ...stale].flatMap((tier) => shuffle(tier));
+}
+
+// Top every player's hand back up to HAND_SIZE from the front of the pile.
+export function dealHands(hands, pile, players, filthy) {
+  const next = {};
+  let rest = [...pile];
+  for (const p of players) {
+    const hand = [...(hands?.[p.id] ?? [])];
+    while (hand.length < HAND_SIZE) {
+      if (!rest.length) rest = whitePile(filthy); // ran out: reshuffle everything
+      hand.push(rest.shift());
+    }
+    next[p.id] = hand;
+  }
+  return { hands: next, pile: rest };
+}
+
+// The valid plays this round: exactly `pick` distinct cards, all from the player's own hand.
+export function cardPlays(subs, hands, round) {
+  return shuffle(
+    subs
+      .filter((s) => s.kind === "input" && s.player_id !== round.czar)
+      .map((s) => ({ pid: s.player_id, cards: (s.value?.cards ?? []).map(String) }))
+      .filter((p) => p.cards.length === round.pick && new Set(p.cards).size === p.cards.length && p.cards.every((c) => hands?.[p.pid]?.includes(c))),
+  );
+}
+
+// Take played cards out of hands (they get topped up next round).
+export function discardPlays(hands, plays) {
+  const next = { ...hands };
+  for (const p of plays ?? []) next[p.pid] = (next[p.pid] ?? []).filter((c) => !p.cards.includes(c));
+  return next;
 }
 
 // Returns { deltas: {pid: {score, sips, why[]}}, view: {...type specific display data} }
@@ -384,6 +443,21 @@ export function scoreRound(round, players, subs) {
       view.results = posts
         .map((x) => ({ ...x, voters: got[x.pid], winner: top > 0 && got[x.pid].length === top }))
         .sort((a, b) => b.voters.length - a.voters.length);
+      break;
+    }
+    case "cards": {
+      const plays = round.plays ?? [];
+      const judged = votes.find((v) => v.player_id === round.czar)?.value;
+      const win = plays.find((p) => p.pid === judged?.win);
+      const worst = plays.length >= 3 ? plays.find((p) => p.pid === judged?.worst && p.pid !== win?.pid) : null;
+      if (win) add(win.pid, 100, 0, "Czar's favourite");
+      if (worst) add(worst.pid, 0, 2, "Czar's least favourite");
+      if (!judged && plays.length) add(round.czar, 0, 2, "Czar fell asleep");
+      const played = new Set(plays.map((p) => p.pid));
+      ids.filter((id) => id !== round.czar && !played.has(id)).forEach((id) => add(id, 0, 1, "Didn't play"));
+      view.win = win?.pid ?? null;
+      view.worst = worst?.pid ?? null;
+      view.plays = plays;
       break;
     }
     case "brawl":
