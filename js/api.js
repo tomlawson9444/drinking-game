@@ -50,14 +50,20 @@ export function watchRoom(code, onChange) {
   const live = { room: null, players: [], subs: [] };
   let stopped = false;
   let seq = 0;
+  let latest = Promise.resolve();
 
-  async function refresh() {
+  function refresh() {
+    latest = load(++seq);
+    return latest;
+  }
+
+  async function load(mine) {
     if (stopped) return;
-    const mine = ++seq;
     try {
       const [room, players] = await Promise.all([api.room(code), api.players(code)]);
       const subs = room ? await api.submissions(code, room.round) : [];
-      if (mine !== seq) return; // a newer refresh started; drop this stale one
+      // A newer refresh started: drop this stale result, but let callers wait for the fresh one.
+      if (mine !== seq) return latest;
       live.room = room;
       live.players = players;
       live.subs = subs;

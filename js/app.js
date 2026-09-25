@@ -22,7 +22,7 @@ function home() {
     </form>
     <div class="or-line"><span>or</span></div>
     <a class="btn ghost" href="?host">📺 Host on this screen</a>
-    <p class="muted small">Host on a TV or laptop everyone can see. Please drink responsibly — a "sip" can be any drink you like.</p>
+    <p class="muted small">18+ only. Host on a TV or laptop everyone can see, with the sound up — the Landlord talks. Please drink responsibly — a "sip" can be any drink you like.</p>
   </div>`;
 
   $("#join").addEventListener("submit", async (e) => {

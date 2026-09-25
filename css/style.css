@@ -186,6 +186,20 @@ code { background: var(--card); padding: 2px 6px; border-radius: 6px; }
 .winner { display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 2rem; }
 .award { font-size: 1.2rem; }
 
+.answer.truth { background: var(--cool); }
+.center-text { text-align: center; }
+
+/* The Landlord's caption */
+.gm {
+  position: fixed; left: 50%; bottom: 64px; transform: translate(-50%, 30px); z-index: 50;
+  width: min(900px, calc(100vw - 32px)); padding: 16px 22px; border-radius: 20px;
+  background: rgba(10, 4, 20, 0.92); border: 2px solid var(--beer); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  display: flex; flex-direction: column; gap: 4px; opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s;
+}
+.gm.show { opacity: 1; transform: translate(-50%, 0); }
+.gm-name { font-family: var(--display); color: var(--beer); font-size: 0.9rem; }
+.gm-text { font-size: clamp(1.1rem, 2.2vw, 1.6rem); font-weight: 700; line-height: 1.3; }
+
 /* ---------- player (phone) ---------- */
 .phone { max-width: 520px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; }
 .phone main { flex: 1; padding: 16px; display: flex; flex-direction: column; }

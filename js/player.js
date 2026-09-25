@@ -1,6 +1,7 @@
 // The phone controller: join a room, answer, vote, find out if you drink.
 import { api, watchRoom, store } from "./api.js";
 import { ROUND_INFO } from "./prompts.js";
+import { norm } from "./logic.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast } from "./ui.js";
 
 export function startPlayer(app, me, onLeave) {
@@ -43,6 +44,8 @@ export function startPlayer(app, me, onLeave) {
     e.preventDefault();
     const text = $("#quip-text").value.trim();
     if (!text) return toast("Write something funny!");
+    const cur = live.room?.state?.cur;
+    if (cur?.type === "fib" && norm(text) === norm(cur.truth)) return toast("That's actually the truth! Lie better. 🤥");
     draft = "";
     send("input", { text });
   });
@@ -105,22 +108,26 @@ export function startPlayer(app, me, onLeave) {
           body = `${timer}<p class="prompt-sm">Would you rather…</p>
             <div class="choices two"><button class="choice a" data-act="choice" data-val="0">${esc(cur.prompt[0])}</button>
             <button class="choice b" data-act="choice" data-val="1">${esc(cur.prompt[1])}</button></div>`;
-        } else if (cur.type === "quip") {
-          body = `${timer}<p class="prompt-sm">${esc(cur.prompt)}</p>
-            <form id="quip-form" class="quip-form"><textarea id="quip-text" maxlength="80" rows="3" placeholder="Something hilarious…">${esc(draft)}</textarea>
-            <button class="btn big" type="submit">Send it ✍️</button></form>`;
+        } else if (cur.type === "quip" || cur.type === "fib") {
+          const fib = cur.type === "fib";
+          body = `${timer}<p class="prompt-sm">${esc(cur.prompt)}</p>${fib ? `<p class="muted center-text">Make up a believable fake answer to fool everyone.</p>` : ""}
+            <form id="quip-form" class="quip-form"><textarea id="quip-text" maxlength="${fib ? 60 : 80}" rows="3" placeholder="${fib ? "A convincing lie…" : "Something hilarious…"}">${esc(draft)}</textarea>
+            <button class="btn big" type="submit">${fib ? "Lie 🤥" : "Send it ✍️"}</button></form>`;
         }
         break;
       }
 
       case "vote": {
         const timer = timerBar(st.deadline, Math.min(st.settings?.timer ?? 45, 40));
-        const choices = (cur.answers ?? []).filter((a) => a.pid !== playerId);
+        const fib = cur.type === "fib";
+        const choices = fib
+          ? (cur.options ?? []).filter((o) => !o.pids.includes(playerId)).map((o) => ({ val: o.key, text: o.text }))
+          : (cur.answers ?? []).filter((a) => a.pid !== playerId).map((a) => ({ val: a.pid, text: a.text }));
         if (mySub("vote")) body = timer + lockedIn("Vote cast! 🗳️");
         else if (!choices.length) body = timer + lockedIn("Sit tight — nothing for you to vote on.");
         else
-          body = `${timer}<p class="prompt-sm">${esc(cur.prompt)}</p><p class="muted">Tap your favourite:</p>
-            <div class="choices">${choices.map((a) => `<button class="choice answer-choice" data-act="vote" data-val="${a.pid}">${esc(a.text)}</button>`).join("")}</div>`;
+          body = `${timer}<p class="prompt-sm">${esc(cur.prompt)}</p><p class="muted">${fib ? "Which one is the TRUTH?" : "Tap your favourite:"}</p>
+            <div class="choices">${choices.map((c) => `<button class="choice answer-choice" data-act="vote" data-val="${esc(c.val)}">${esc(c.text)}</button>`).join("")}</div>`;
         break;
       }
 

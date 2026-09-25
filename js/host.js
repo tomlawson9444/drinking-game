@@ -1,12 +1,18 @@
-// The "TV" screen: creates the room, shows the prompts and runs the game clock.
+// The "TV" screen: creates the room, shows the prompts, runs the game clock and
+// gives The Landlord (the game-master voice) his cues.
 import { api, watchRoom, newToken, store } from "./api.js";
 import { ROUND_INFO } from "./prompts.js";
-import { buildPlan, allIn, quipAnswers, scoreRound } from "./logic.js";
+import { buildPlan, allIn, quipAnswers, fibOptions, scoreRound, describeRound, describeStandings } from "./logic.js";
+import { createGM } from "./gm.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast } from "./ui.js";
 
 const INTRO_MS = 5000;
-const REVEAL_MS = 14000;
-const SCORES_MS = 7000;
+const REVEAL_MS = 12000;
+const SCORES_MS = 6000;
+const MAX_HOLD_MS = 30000; // longest we'll wait for the Landlord to finish talking
+const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone/;
+
+const DEFAULT_SETTINGS = { rounds: 10, timer: 45, social: true, filthy: true, voice: true, ai: true };
 
 export async function startHost(app) {
   let session = store.get("dg-host");
@@ -25,22 +31,52 @@ export async function startHost(app) {
 
   let live = { room: null, players: [], subs: [] };
   let busy = false;
+  let preparing = false;
   let watcher = null;
   const scored = new Set(); // rounds whose points/sips were already applied
-  const settings = store.get("dg-settings") ?? { rounds: 10, timer: 45, social: true };
+  const settings = { ...DEFAULT_SETTINGS, ...store.get("dg-settings") };
+
+  const caption = $("#gm");
+  let captionTimer = null;
+  const gm = createGM({
+    code,
+    hostToken: token,
+    settings,
+    onNotice: toast,
+    onCaption(text) {
+      caption.innerHTML = `<span class="gm-name">🎙️ The Landlord</span><span class="gm-text">${esc(text)}</span>`;
+      caption.classList.add("show");
+      clearTimeout(captionTimer);
+      captionTimer = setTimeout(() => caption.classList.remove("show"), 6000 + text.length * 60);
+    },
+  });
 
   let moved = false;
+  let pending = null; // the phase we just wrote and haven't seen come back yet
   const set = (phase, round, state) => {
     moved = true;
+    pending = { phase, round, at: Date.now() };
     return api.setState(code, token, phase, round, state);
   };
 
   async function startGame() {
-    const types = ["quip", "likely", "wyr", "nhie", ...(settings.social ? ["social"] : [])];
-    const plan = buildPlan(settings.rounds, types);
-    await api.reset(code, token);
-    scored.clear();
-    await beginRound({ plan, settings, idx: 0 }, 1);
+    const names = live.players.map((p) => p.name);
+    preparing = true;
+    render();
+    try {
+      // The welcome roast plays while Claude writes tonight's personalised prompts.
+      const welcome = gm.line("welcome", `Players tonight: ${names.join(", ")}. ${settings.rounds} rounds.`);
+      const ai = settings.ai ? await gm.prompts(names) : null;
+      const types = ["quip", "likely", "fib", "wyr", "nhie", ...(settings.social ? ["social"] : [])];
+      const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, names, ai });
+      await api.reset(code, token);
+      scored.clear();
+      await welcome;
+      preparing = false;
+      await beginRound({ plan, settings: { ...settings }, idx: 0 }, 1);
+    } finally {
+      preparing = false;
+    }
   }
 
   async function beginRound(base, roundNo) {
@@ -48,33 +84,43 @@ export async function startHost(app) {
     await set("intro", roundNo, { ...base, cur: { ...r }, until: Date.now() + INTRO_MS });
   }
 
+  // Timed phases wait for the Landlord to finish his line (up to a limit).
+  const ready = (until, now) => now >= until && (!gm.busy() || now >= until + MAX_HOLD_MS);
+
   async function step() {
     const room = live.room;
     if (!room || busy) return;
+    // Never act on a stale copy of the room: wait until our last write is visible.
+    if (pending) {
+      if (room.phase === pending.phase && room.round === pending.round) pending = null;
+      else if (Date.now() - pending.at < 5000) return;
+    }
     const st = room.state ?? {};
     const cur = st.cur ?? {};
     const now = Date.now();
     const timer = (st.settings?.timer ?? 45) * 1000;
+    const voteTime = Math.min(timer, 40000);
     busy = true;
     moved = false;
     try {
-      if (room.phase === "intro" && now >= st.until) {
+      if (room.phase === "intro" && ready(st.until, now)) {
         if (cur.type === "social") await set("reveal", room.round, { ...st, cur: { ...cur, view: {} }, until: now + REVEAL_MS });
         else await set("input", room.round, { ...st, deadline: now + timer });
-      } else if (room.phase === "input" && (now >= st.deadline || allIn("input", cur.type, live.players, live.subs))) {
+      } else if (room.phase === "input" && (now >= st.deadline || allIn("input", cur, live.players, live.subs))) {
         if (cur.type === "quip") {
           const answers = quipAnswers(live.subs);
-          if (answers.length >= 2) {
-            await set("vote", room.round, { ...st, cur: { ...cur, answers }, deadline: now + Math.min(timer, 40000) });
-            return;
-          }
-          await reveal(room, st, { ...cur, answers });
+          if (answers.length >= 2) await set("vote", room.round, { ...st, cur: { ...cur, answers }, deadline: now + voteTime });
+          else await reveal(room, st, { ...cur, answers });
+        } else if (cur.type === "fib") {
+          const options = fibOptions(live.subs, cur.truth);
+          if (options.length >= 2) await set("vote", room.round, { ...st, cur: { ...cur, options }, deadline: now + voteTime });
+          else await reveal(room, st, { ...cur, options });
         } else {
           await reveal(room, st, cur);
         }
-      } else if (room.phase === "vote" && (now >= st.deadline || allIn("vote", cur.type, live.players, live.subs, cur.answers ?? []))) {
+      } else if (room.phase === "vote" && (now >= st.deadline || allIn("vote", cur, live.players, live.subs))) {
         await reveal(room, st, cur);
-      } else if (room.phase === "reveal" && now >= st.until) {
+      } else if (room.phase === "reveal" && ready(st.until, now)) {
         await set("scores", room.round, { ...st, until: now + SCORES_MS });
       } else if (room.phase === "scores" && now >= st.until) {
         await next(room, st);
@@ -102,6 +148,34 @@ export async function startHost(app) {
     else await beginRound({ plan: st.plan, settings: st.settings, idx }, room.round + 1);
   }
 
+  // The Landlord's cues, fired once per phase change.
+  function announce(room) {
+    const st = room.state ?? {};
+    const cur = st.cur ?? {};
+    const info = ROUND_INFO[cur.type] ?? {};
+    switch (room.phase) {
+      case "intro":
+        gm.say(`Round ${st.idx + 1}. ${info.title}.`);
+        break;
+      case "input":
+        if (cur.type === "wyr") gm.say(`Would you rather ${cur.prompt[0]}? Or ${cur.prompt[1]}?`, { caption: false });
+        else gm.say(cur.prompt, { caption: false });
+        break;
+      case "vote":
+        gm.say(cur.type === "fib" ? "Now. Which one's the truth?" : "Right. Vote for the least disappointing one.", { caption: false });
+        break;
+      case "reveal":
+        if (cur.type === "social") gm.say(cur.prompt, { caption: false });
+        else gm.line("reveal", `${describeRound(cur, live.players, cur.deltas)}\n\nStandings:\n${describeStandings(live.players)}`);
+        break;
+      case "final": {
+        const thirsty = [...live.players].sort((a, b) => b.sips - a.sips)[0];
+        gm.line("final", `Final standings:\n${describeStandings(live.players)}\nDrank the most: ${thirsty?.name ?? "nobody"}`);
+        break;
+      }
+    }
+  }
+
   // Host controls
   app.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-act]");
@@ -113,11 +187,13 @@ export async function startHost(app) {
         btn.disabled = true;
         await startGame();
       } else if (act === "skip") {
-        // Fast-forward whatever is on screen.
+        // Fast-forward whatever is on screen (and shut the Landlord up).
+        gm.stop();
         const st = live.room.state;
         const patch = live.room.phase === "input" || live.room.phase === "vote" ? { deadline: 0 } : { until: 0 };
         await set(live.room.phase, live.room.round, { ...st, ...patch });
       } else if (act === "lobby") {
+        gm.stop();
         await api.reset(code, token);
       } else if (act === "new-room") {
         store.del("dg-host");
@@ -129,9 +205,11 @@ export async function startHost(app) {
         settings[act] = +btn.dataset.val;
         store.set("dg-settings", settings);
         render();
-      } else if (act === "social") {
-        settings.social = !settings.social;
+      } else if (["social", "filthy", "voice", "ai"].includes(act)) {
+        settings[act] = !settings[act];
         store.set("dg-settings", settings);
+        if (act === "voice" && settings.voice) gm.say("Testing. One, two. Can the cheap seats hear me?");
+        if (act === "voice" && !settings.voice) gm.stop();
         render();
       }
     } catch (err) {
@@ -140,6 +218,8 @@ export async function startHost(app) {
   });
 
   const joinUrl = `${location.origin}${location.pathname}?room=${code}`;
+  const toggle = (key, on, off = "Off") =>
+    `<button class="pill ${settings[key] ? "on" : ""}" data-act="${key}">${settings[key] ? on : off}</button>`;
 
   function render() {
     const room = live.room;
@@ -156,15 +236,19 @@ export async function startHost(app) {
         <div class="roomcode">Join at <b>${esc(location.host + location.pathname)}</b> · code <b class="code">${code}</b></div>
         ${room.phase !== "lobby" ? `<div class="round-no">Round ${st.idx + 1}/${st.plan?.length ?? "?"}</div>` : ""}
       </header>`;
-    const controls = room.phase === "lobby" || room.phase === "final" ? "" : `<footer class="host-foot">
-        <button class="btn ghost sm" data-act="skip">Skip ⏭</button>
-        <button class="btn ghost sm" data-act="lobby">Back to lobby</button>
+    const controls = room.phase === "lobby" ? "" : `<footer class="host-foot">
+        <button class="btn ghost sm" data-act="voice">${settings.voice ? "🔊 Voice on" : "🔇 Voice off"}</button>
+        ${room.phase === "final" ? "" : `<button class="btn ghost sm" data-act="skip">Skip ⏭</button>
+        <button class="btn ghost sm" data-act="lobby">Back to lobby</button>`}
       </footer>`;
     let body = "";
 
     switch (room.phase) {
       case "lobby":
-        body = `<div class="lobby">
+        body = preparing
+          ? `<div class="intro pop"><div class="intro-emoji wobble">🎙️</div><h1>Pouring the first round…</h1>
+              <p class="rules">${settings.ai ? "The Landlord is writing tonight's material about you lot." : "Get your drinks ready."}</p><div class="spinner"></div></div>`
+          : `<div class="lobby">
           <div class="join-card">
             <div class="logo">Last Orders</div>
             <p class="tag">The party drinking game. Grab your phones!</p>
@@ -175,15 +259,18 @@ export async function startHost(app) {
           <div class="lobby-side">
             <h2>Players (${live.players.length}/12)</h2>
             <div class="player-grid">
-              ${live.players.map((p) => `<button class="player-card pop" data-act="kick" data-id="${p.id}" title="Click to kick" style="--c:${esc(p.color)}">${avatar(p, "lg")}<span>${esc(p.name)}</span></button>`).join("") || `<p class="muted">Waiting for players to join…</p>`}
+              ${live.players.map((p) => `<button class="player-card" data-act="kick" data-id="${p.id}" title="Click to kick" style="--c:${esc(p.color)}">${avatar(p, "lg")}<span>${esc(p.name)}</span></button>`).join("") || `<p class="muted">Waiting for players to join…</p>`}
             </div>
             <div class="settings">
               <div class="setting"><span>Rounds</span>${[6, 10, 15, 20].map((n) => `<button class="pill ${settings.rounds === n ? "on" : ""}" data-act="rounds" data-val="${n}">${n}</button>`).join("")}</div>
               <div class="setting"><span>Timer</span>${[30, 45, 60, 90].map((n) => `<button class="pill ${settings.timer === n ? "on" : ""}" data-act="timer" data-val="${n}">${n}s</button>`).join("")}</div>
-              <div class="setting"><span>Social rounds</span><button class="pill ${settings.social ? "on" : ""}" data-act="social">${settings.social ? "On" : "Off"}</button></div>
+              <div class="setting"><span>Filth level</span>${toggle("filthy", "🔥 Filthy", "😇 Mild")}</div>
+              <div class="setting"><span>AI Landlord</span>${toggle("ai", "🎙️ On")}<span class="muted small">roasts you & writes custom prompts</span></div>
+              <div class="setting"><span>Voice-over</span>${toggle("voice", "🔊 On")}</div>
+              <div class="setting"><span>Social rounds</span>${toggle("social", "On")}</div>
             </div>
             <button class="btn big" data-act="start" ${live.players.length < 2 ? "disabled" : ""}>Everybody's in — start! 🍻</button>
-            <p class="muted small">Host wants to play too? Join from your phone as well. Drink responsibly — a "sip" can be anything, water counts.</p>
+            <p class="muted small">Adults only — ${settings.filthy ? "filthy mode is very much not safe for your nan" : "mild mode is safe-ish for your nan"}. Host wants to play too? Join from your phone as well. Drink responsibly — a "sip" can be anything, water counts.</p>
             <button class="btn ghost sm" data-act="new-room">New room</button>
           </div>
         </div>`;
@@ -206,11 +293,17 @@ export async function startHost(app) {
           prompt = `<h2 class="kicker">Would you rather…</h2>
             <div class="wyr"><div class="wyr-opt a">${esc(cur.prompt[0])}</div><div class="or">OR</div><div class="wyr-opt b">${esc(cur.prompt[1])}</div></div>`;
         } else if (room.phase === "vote") {
+          const items = cur.type === "fib" ? cur.options ?? [] : cur.answers ?? [];
           prompt = `<h2 class="prompt sm">${esc(cur.prompt)}</h2>
-            <p class="kicker">Vote for your favourite on your phone!</p>
-            <div class="answers">${(cur.answers ?? []).map((a, i) => `<div class="answer pop" style="animation-delay:${i * 80}ms">${esc(a.text)}</div>`).join("")}</div>`;
+            <p class="kicker">${cur.type === "fib" ? "Which one is the TRUTH? Vote on your phone!" : "Vote for your favourite on your phone!"}</p>
+            <div class="answers">${items.map((a, i) => `<div class="answer pop" style="animation-delay:${i * 80}ms">${esc(a.text)}</div>`).join("")}</div>`;
         } else {
-          const hint = { likely: "Vote on your phone!", nhie: "Answer honestly on your phone…", quip: "Write your funniest answer on your phone!" }[cur.type];
+          const hint = {
+            likely: "Vote on your phone!",
+            nhie: "Answer honestly on your phone…",
+            quip: "Write your funniest answer on your phone!",
+            fib: "Write a convincing LIE on your phone!",
+          }[cur.type];
           prompt = `<h1 class="prompt">${esc(cur.prompt)}</h1><p class="kicker">${hint}</p>`;
         }
         body = `<div class="stage">
@@ -272,7 +365,7 @@ export async function startHost(app) {
         break;
       case "nhie":
         main = `<h2 class="prompt sm">${esc(cur.prompt)}</h2>
-          <div class="split"><div><h3>I have 🍺</h3>${(v.have ?? []).map((id) => chip(byId[id])).join("") || `<p class="muted">Saints, all of you.</p>`}</div>
+          <div class="split"><div><h3>I have 🍺</h3>${(v.have ?? []).map((id) => chip(byId[id])).join("") || `<p class="muted">Liars, all of you.</p>`}</div>
           <div><h3>Never 😇</h3>${(v.never ?? []).map((id) => chip(byId[id])).join("") || `<p class="muted">Nobody!</p>`}</div></div>`;
         break;
       case "wyr":
@@ -286,20 +379,31 @@ export async function startHost(app) {
             <div class="a-text">${esc(a.text)}</div>
             <div class="a-meta">${chip(byId[a.pid])} <b>${a.voters.length}</b> vote${a.voters.length === 1 ? "" : "s"} ${a.winner ? "👑" : ""}</div></div>`).join("") || `<p>No answers?! Everybody drinks.</p>`}</div>`;
         break;
+      case "fib":
+        main = `<h2 class="prompt sm">${esc(cur.prompt)}</h2>
+          <div class="answers results">${(v.options ?? []).map((o, i) => `<div class="answer pop ${o.truth ? "truth" : ""}" style="animation-delay:${i * 150}ms">
+            <div class="a-text">${o.truth ? "✅ " : "🤥 "}${esc(o.text)}</div>
+            <div class="a-meta">${o.truth ? "<b>THE TRUTH</b>" : `Lie by ${o.pids.map((id) => chip(byId[id])).join("")}`}</div>
+            <div class="a-meta small">${o.pickers.length ? `Picked by ${o.pickers.map(name).join(", ")}` : "Nobody fell for it"}</div></div>`).join("")}</div>`;
+        break;
     }
     const drinkers = Object.entries(cur.deltas ?? {}).filter(([, d]) => d.sips > 0);
     return `<div class="round-type">${info.emoji} ${esc(info.title)}</div>${main}
       ${drinkers.length ? `<div class="drink-list"><h2>🍺 Drink up!</h2>${drinkers
-        .map(([id, d]) => `<div class="drink pop">${chip(byId[id])} <b>${sipsText(d.sips)}</b> <span class="muted">${esc(d.why.filter((w) => !/vote|crowd|majority|Unanimous/.test(w) || /Zero/.test(w)).join(", "))}</span></div>`)
+        .map(([id, d]) => `<div class="drink pop">${chip(byId[id])} <b>${sipsText(d.sips)}</b> <span class="muted">${esc(d.why.filter((w) => !POINT_REASONS.test(w)).join(", "))}</span></div>`)
         .join("")}</div>` : ""}`;
   }
 
   let lastSig = "";
+  let lastPhase = null;
   watcher = watchRoom(code, (l) => {
     live = l;
     const sig = JSON.stringify([l.room, l.players, l.subs.map((s) => s.player_id + s.kind)]);
     if (sig !== lastSig) render();
     lastSig = sig;
+    const phaseKey = l.room && `${l.room.phase}:${l.room.round}`;
+    if (lastPhase !== null && phaseKey !== lastPhase && l.room) announce(l.room);
+    lastPhase = phaseKey;
     step();
   });
   setInterval(() => step(), 500);
