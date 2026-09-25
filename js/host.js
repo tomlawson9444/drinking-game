@@ -15,7 +15,7 @@ const CHAMBER_S = 20; // the Drinking Chamber
 const DRAW_S = 90; // minimum time to draw a Tee K.O. shirt
 const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted|Czar's favourite/;
 
-const DEFAULT_SETTINGS = { mode: "party", rounds: 10, timer: 45, social: true, filthy: true, voice: true, tvVoice: true };
+const DEFAULT_SETTINGS = { mode: "party", rounds: 10, timer: 45, social: true, filthy: true, dark: false, voice: true, tvVoice: true };
 // Cards Against Sobriety needs a Czar plus at least two players.
 const minPlayers = (mode) => (mode === "cards" ? 3 : 2);
 
@@ -68,13 +68,13 @@ export async function startHost(app) {
     // The knockout games need at least three players to be worth it.
     if (!cards && names.length >= 3) types.push("brawl", "tee");
     if (!cards && settings.social) types.push("social");
-    const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, names, seen: seenSet() });
+    const plan = buildPlan(settings.rounds, types, { filthy: settings.filthy, dark: settings.filthy && settings.dark, names, seen: seenSet() });
     markSeen(plan.map((r) => r.key));
     await api.reset(code, token);
     scored.clear();
     const [name, other] = shuffle(names);
     gm.line("welcome", { name, other });
-    const extra = cards ? { hands: {}, pile: whitePile(settings.filthy, seenSet()) } : {};
+    const extra = cards ? { hands: {}, pile: whitePile(settings.filthy, seenSet(), settings.filthy && settings.dark) } : {};
     await beginRound({ plan, settings: { ...settings }, idx: 0, ...extra }, 1);
   }
 
@@ -82,7 +82,7 @@ export async function startHost(app) {
     const r = base.plan[base.idx];
     if (r.type === "cards") {
       // Top up everyone's hand, and pass the Czar round the room in joining order.
-      const { hands, pile } = dealHands(base.hands, base.pile, live.players, base.settings.filthy);
+      const { hands, pile } = dealHands(base.hands, base.pile, live.players, base.settings.filthy, base.settings.filthy && base.settings.dark);
       markSeen(base.pile.slice(0, base.pile.length - pile.length));
       const czar = live.players[base.idx % live.players.length]?.id;
       await set("intro", roundNo, { ...base, hands, pile, cur: { ...r, czar }, until: Date.now() + INTRO_MS });
@@ -357,7 +357,7 @@ export async function startHost(app) {
         settings[act] = +btn.dataset.val;
         store.set("dg-settings", settings);
         render();
-      } else if (["social", "filthy", "voice", "tvVoice"].includes(act)) {
+      } else if (["social", "filthy", "dark", "voice", "tvVoice"].includes(act)) {
         settings[act] = !settings[act];
         store.set("dg-settings", settings);
         if ((act === "voice" || act === "tvVoice") && settings.voice) gm.say("Testing. One, two. Can the cheap seats hear me?");
@@ -419,7 +419,7 @@ export async function startHost(app) {
               ${settings.mode === "cards" ? `<p class="muted small">Everyone gets 7 cards on their phone. Each round one player's phone is the 👑 Card Czar and picks the winner — the Czar passes round the room. Needs 3+ players.</p>` : ""}
               <div class="setting"><span>Rounds</span>${[6, 10, 15, 20].map((n) => `<button class="pill ${settings.rounds === n ? "on" : ""}" data-act="rounds" data-val="${n}">${n}</button>`).join("")}</div>
               <div class="setting"><span>Timer</span>${[30, 45, 60, 90].map((n) => `<button class="pill ${settings.timer === n ? "on" : ""}" data-act="timer" data-val="${n}">${n}s</button>`).join("")}</div>
-              <div class="setting"><span>Filth level</span>${toggle("filthy", "🔥 Filthy", "😇 Mild")}</div>
+              <div class="setting"><span>Filth level</span>${toggle("filthy", "🔥 Filthy", "😇 Mild")}${settings.filthy && settings.mode === "cards" ? toggle("dark", "💀 Dark humour", "💀 Dark: off") : ""}</div>
               <div class="setting"><span>Landlord voice</span>${toggle("voice", "🔊 On")}${settings.voice ? toggle("tvVoice", "📺 TV speaks", "📺 TV silent") : ""}</div>
               ${settings.voice ? `<p class="muted small">${gm.canSpeak() ? "" : "⚠️ This TV browser has no voice. "}No sound from the TV? On one phone, tap <b>🔈 Be the speaker</b> and the Landlord talks through that phone instead (or a Bluetooth speaker connected to it).</p>` : ""}
               ${settings.mode === "cards" ? "" : `<div class="setting"><span>Social rounds</span>${toggle("social", "On")}</div>`}

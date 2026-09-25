@@ -1,21 +1,22 @@
 // Pure game rules: building the round plan and scoring a round.
 // No DOM or network here so it can be tested with plain Node.
 import { MILD, FILTHY, FIBS, YEARS, TRIVIA, ROLE_SETS, TEE_IDEAS, STI_QUESTIONS, STI_CONTEXTS, shuffle } from "./prompts.js";
-import { BLACK_MILD, BLACK_FILTHY, WHITE_MILD, WHITE_FILTHY, HAND_SIZE } from "./cards.js";
+import { BLACK_MILD, BLACK_FILTHY, BLACK_DARK, WHITE_MILD, WHITE_FILTHY, WHITE_DARK, HAND_SIZE } from "./cards.js";
 
 const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, social: 1 };
 
 // A stable key for a prompt, used to remember what a group has already played.
 export const promptKey = (p) => (typeof p === "string" ? p : Array.isArray(p) ? p.join(" / ") : p.q ?? p.title ?? JSON.stringify(p));
 
-// opts: { filthy, names: [player names], seen: Set of promptKeys already played on this screen }
+// opts: { filthy, dark, names: [player names], seen: Set of promptKeys already played on this screen }
 export function buildPlan(rounds, types, opts = {}) {
   const seen = opts.seen ?? new Set();
   // Deck order (last = drawn first): unseen prompts before seen ones, and in filthy mode the
   // filthy pack before the mild one. Each tier is shuffled.
   const tiers = (t) => {
     const packs = { fib: [FIBS], year: [YEARS], trivia: [TRIVIA], roles: [ROLE_SETS.filter((r) => opts.filthy || !r.filthy)],
-      cards: opts.filthy ? [BLACK_FILTHY, BLACK_MILD] : [BLACK_MILD] }[t] ??
+      // The dark pack shuffles in with the filthy one rather than coming first.
+      cards: opts.filthy ? [opts.dark ? [...BLACK_DARK, ...BLACK_FILTHY] : BLACK_FILTHY, BLACK_MILD] : [BLACK_MILD] }[t] ??
       (opts.filthy ? [FILTHY[t], MILD[t]] : [MILD[t]]);
     const fresh = packs.map((pack) => pack.filter((p) => !seen.has(promptKey(p))));
     const stale = packs.map((pack) => pack.filter((p) => seen.has(promptKey(p))));
@@ -223,21 +224,21 @@ export function fillCard(text, cards) {
 }
 
 // A fresh draw pile of white cards: unseen first (filthy before mild), then seen ones.
-export function whitePile(filthy, seen = new Set()) {
-  const packs = filthy ? [WHITE_FILTHY, WHITE_MILD] : [WHITE_MILD];
+export function whitePile(filthy, seen = new Set(), dark = false) {
+  const packs = filthy ? [dark ? [...WHITE_DARK, ...WHITE_FILTHY] : WHITE_FILTHY, WHITE_MILD] : [WHITE_MILD];
   const fresh = packs.map((p) => p.filter((c) => !seen.has(c)));
   const stale = packs.map((p) => p.filter((c) => seen.has(c)));
   return [...fresh, ...stale].flatMap((tier) => shuffle(tier));
 }
 
 // Top every player's hand back up to HAND_SIZE from the front of the pile.
-export function dealHands(hands, pile, players, filthy) {
+export function dealHands(hands, pile, players, filthy, dark = false) {
   const next = {};
   let rest = [...pile];
   for (const p of players) {
     const hand = [...(hands?.[p.id] ?? [])];
     while (hand.length < HAND_SIZE) {
-      if (!rest.length) rest = whitePile(filthy); // ran out: reshuffle everything
+      if (!rest.length) rest = whitePile(filthy, new Set(), dark); // ran out: reshuffle everything
       hand.push(rest.shift());
     }
     next[p.id] = hand;

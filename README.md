@@ -30,6 +30,8 @@ Pick the **Game** in the lobby:
   is the **👑 Card Czar** (it passes round the room in joining order — never the TV). Everyone else plays
   their funniest card(s); the Czar picks a **favourite (+100)** and a **least favourite (drinks 2)**. Hands
   top back up to 7 every round. Needs 3+ players. Cards live in `js/cards.js`.
+  In filthy mode there's also a **💀 Dark humour** toggle that shuffles in a grim pack (death, funerals,
+  hell, drugs, crime, the apocalypse). It never targets groups of people or real victims of real tragedies.
 
 ### Round types (Party Mix)
 
