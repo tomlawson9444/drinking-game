@@ -215,6 +215,11 @@ export async function startHost(app) {
         const st = live.room.state;
         const patch = live.room.phase === "input" || live.room.phase === "vote" ? { deadline: 0 } : { until: 0 };
         await set(live.room.phase, live.room.round, { ...st, ...patch });
+      } else if (act === "end") {
+        // Finish early: skip the remaining rounds and go straight to the final scores.
+        if (!confirm("End the game now and show the final scores?")) return;
+        gm.stop();
+        await set("final", live.room.round, { ...live.room.state });
       } else if (act === "lobby") {
         gm.stop();
         await api.reset(code, token);
@@ -262,7 +267,8 @@ export async function startHost(app) {
     const controls = room.phase === "lobby" ? "" : `<footer class="host-foot">
         <button class="btn ghost sm" data-act="voice">${settings.voice ? "🔊 Voice on" : "🔇 Voice off"}</button>
         ${room.phase === "final" ? "" : `<button class="btn ghost sm" data-act="skip">Skip ⏭</button>
-        <button class="btn ghost sm" data-act="lobby">Back to lobby</button>`}
+        <button class="btn ghost sm" data-act="lobby">Back to lobby</button>
+        <button class="btn danger sm" data-act="end">🏁 End game</button>`}
       </footer>`;
     let body = "";
 

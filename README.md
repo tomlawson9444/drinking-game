@@ -12,6 +12,8 @@ text-to-speech and his lines are pre-written in `js/prompts.js`, so there are no
 1. On the TV or laptop, open the site and tap **Host on this screen**.
 2. Everyone else scans the QR code (or opens the site) and enters the **4-letter room code** and a name.
 3. Pick the number of rounds and the timer, then hit **start**.
+4. During the game the host screen has **Skip ⏭**, **Back to lobby** and **🏁 End game** (finish early and
+   jump straight to the final scores).
 
 ### Round types
 
