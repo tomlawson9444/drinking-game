@@ -850,7 +850,8 @@ export async function startHost(app) {
           ? `<div class="round-no">Round ${st.idx + 1} · first to ${st.settings.target ?? 7} 🃏</div>`
           : `<div class="round-no">Round ${st.idx + 1}/${st.plan?.length ?? "?"}</div>`}
       </header>`;
-    const controls = room.phase === "lobby" ? "" : `<footer class="host-foot">
+    // House rules and drinking buddies sit in the bottom bar, so they never cover the game.
+    const controls = room.phase === "lobby" ? "" : `<footer class="host-foot">${rulesBanner(st)}<span class="spacer"></span>
         <button class="btn ghost sm" data-act="voice">${settings.voice ? "🔊 Voice on" : "🔇 Voice off"}</button>
         ${room.phase === "final" ? "" : `<button class="btn ghost sm" data-act="skip">Skip ⏭</button>
         <button class="btn ghost sm" data-act="lobby">Back to lobby</button>
@@ -960,7 +961,11 @@ export async function startHost(app) {
         break;
       }
     }
-    app.innerHTML = `<div class="host">${header}<main>${body}</main>${room.phase === "lobby" ? "" : rulesBanner(st)}${controls}</div>`;
+    // During the game everything is shrunk to fit the TV, so nothing is ever off the bottom.
+    const fit = room.phase !== "lobby";
+    app.innerHTML = `<div class="host ${fit ? "fitted" : ""}">${header}<main>${fit ? `<div class="fit">${body}</div>` : body}</main>${controls}</div>`;
+    fitStage();
+    document.fonts?.ready.then(() => fitStage());
 
     armFast(fastSeen, `${room.round}:${cur.q?.i}`);
     const qr = $("#qr");
@@ -971,6 +976,29 @@ export async function startHost(app) {
       qr.innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
     }
   }
+
+  // Shrink the game screen to fit the TV. The content is laid out wider as it shrinks (so text re-wraps
+  // into the space) and re-fitted when drawings finish loading or the window changes size.
+  function fitStage() {
+    const main = document.querySelector(".host.fitted main");
+    const box = main?.querySelector(".fit");
+    if (!box) return;
+    const w = main.clientWidth;
+    const h = main.clientHeight;
+    let scale = 1;
+    for (let i = 0; i < 4; i++) {
+      box.style.width = `${w / scale}px`;
+      const next = Math.min(1, h / box.scrollHeight);
+      if (Math.abs(next - scale) < 0.01) break;
+      scale = next;
+    }
+    box.style.width = `${w / scale}px`;
+    // The last width change can re-wrap text; make sure it still fits.
+    scale = Math.min(scale, h / box.scrollHeight);
+    box.style.transform = scale < 1 ? `scale(${scale})` : "";
+    box.querySelectorAll("img").forEach((img) => img.complete || img.addEventListener("load", fitStage, { once: true }));
+  }
+  window.addEventListener("resize", () => fitStage());
 
   // What the TV shows while phones are busy (answering, voting, fighting).
   function hostStage(room, cur, byId) {
@@ -1153,7 +1181,7 @@ export async function startHost(app) {
         if (phase === "teleshow") {
           const ch = cur.chains[cur.show];
           return `<p class="rap-label">Chain ${cur.show + 1} of ${cur.chains.length}</p>
-            <div class="tele-chain">${ch.entries.map((e, i) => (i ? `<div class="tele-arrow pop" style="animation-delay:${i * TELE_SHOW_MS * 0.8 - 300}ms">➜</div>` : "") + teleEntry(e, byId, i * TELE_SHOW_MS * 0.8)).join("")}</div>`;
+            <div class="tele-chain">${ch.entries.map((e, i) => (i ? `<div class="tele-arrow pop" style="animation-delay:${i * TELE_SHOW_MS * 0.8 - 300}ms">→</div>` : "") + teleEntry(e, byId, i * TELE_SHOW_MS * 0.8)).join("")}</div>`;
         }
         if (phase === "vote")
           return `<p class="kicker">Which chain was best? Vote on your phone!</p>
@@ -1276,7 +1304,7 @@ export async function startHost(app) {
   function netWindow(inner, banner, page) {
     return `<div class="net-window pop">
       <div class="net-title"><span>📱 Out of Context</span><span class="net-btns"><i>–</i><i>✕</i></span></div>
-      <div class="net-bar"><span class="net-nav">◀ ▶ ✖ ⟳ 🏠</span>
+      <div class="net-bar"><span class="net-nav">◀ ▶ ✖ 🔄 🏠</span>
         <div class="net-url">🌐 www.outofcontext.lol/${esc(page)}</div><div class="net-code"><small>join code</small>${code}</div></div>
       <div class="net-body">${inner}</div>
       ${banner ? `<div class="net-banner">${banner}</div>` : ""}
