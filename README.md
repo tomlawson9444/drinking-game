@@ -44,6 +44,8 @@ Pick the **Game** in the lobby:
   to 7 black cards** (or 5 / 10 — pick in the lobby) wins the game. Needs 3+ players. About 1 in 20 dealt
   cards is a **✏️ blank card**: play it and write your own answer.
 
+  **Pick your decks:** after you press start, a deck picker lists all 71 official packs in four groups: the classic game, themed packs (Food, Weed, Dad, 90s Nostalgia…), promos and oddities, and Family Edition. Tap packs in or out, or use **Everything**, **Just the classics**, **Family Edition only** or a group's **add all / remove all**. The picker shows how many cards you've got, won't start with too few, and remembers your picks for next time.
+
   The cards come from [JSON Against Humanity](https://github.com/crhallberg/json-against-humanity) and are
   © Cards Against Humanity LLC, licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
   (free, non-commercial use with credit). `data/cah.json` is built from that repo by

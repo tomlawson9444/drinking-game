@@ -7,7 +7,7 @@ import { buildPlan, allIn, expected, quipAnswers, fibOptions, scoreRound, brawlI
   isBlank, wheelSpin, hotVictim, hotQuestions, applyBuddies, buddyRounds, spikedPick, jobBanks, jobAnswers, sortTeams, sortAnswer,
   kingsRule, kingsOutcome, teleChains, norm } from "./logic.js";
 import { createGM } from "./gm.js";
-import { loadCards, cardDeck, CARDS_CREDIT } from "./cards.js";
+import { loadCards, cardDeck, defaultPacks, packGroups, CARDS_CREDIT, HAND_SIZE } from "./cards.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf, safeImg, playingCard, armFast } from "./ui.js";
 
 const INTRO_MS = 5000;
@@ -103,7 +103,14 @@ export async function startHost(app) {
   // holds each player's hand), so the room's data stays small.
   let deck = null;
   let pile = [];
-  let picking = false; // showing the Party Mix game picker
+  let picking = false; // showing the Party Mix game picker (or the Cards Against Sobriety deck picker)
+  let cardData = null; // the Cards Against Sobriety cards, once loaded
+  // The packs in play: the ones picked last time, or everything but Family Edition.
+  const packsInPlay = () => settings.packs ?? defaultPacks(cardData, !settings.filthy);
+  const deckSize = () => {
+    const d = cardDeck(cardData, packsInPlay());
+    return { white: d.white.length, black: d.black.length };
+  };
 
   // Games that can be played with the current number of players.
   const playableGames = () => PARTY_GAMES.filter((g) => live.players.length >= (g.min ?? 2));
@@ -130,16 +137,47 @@ export async function startHost(app) {
     </div>`;
   }
 
+  // Cards Against Sobriety: tick the packs to play with.
+  function renderDeckPicker() {
+    const on = new Set(packsInPlay());
+    const { white, black } = deckSize();
+    const enough = black >= 5 && white >= live.players.length * HAND_SIZE + 10;
+    const groups = packGroups(cardData);
+    return `<div class="stage picker">
+      <h1>Pick your decks</h1>
+      <p class="kicker">${on.size} pack${on.size === 1 ? "" : "s"} · <b>${white.toLocaleString()}</b> white cards · <b>${black.toLocaleString()}</b> black cards${enough ? "" : " — ⚠️ not enough cards yet"}</p>
+      <div class="row"><button class="btn ghost sm" data-act="packs" data-val="all">✅ Everything (not Family)</button>
+        <button class="btn ghost sm" data-act="packs" data-val="classic">🃏 Just the classics</button>
+        <button class="btn ghost sm" data-act="packs" data-val="family">😇 Family Edition only</button>
+        <button class="btn ghost sm" data-act="packs" data-val="none">✖ Clear</button>
+        <button class="btn sm" data-act="start" ${enough ? "" : "disabled"}>Deal the cards! 🃏</button></div>
+      ${groups.map((g) => `<div class="pack-group">
+        <h2>${g.title} <button class="link small" data-act="packs" data-val="group:${g.key}">${g.packs.every((p) => on.has(p.name)) ? "remove all" : "add all"}</button></h2>
+        <p class="muted small">${esc(g.blurb)}</p>
+        <div class="pack-grid">${g.packs.map((p) => `<button class="pack-card ${on.has(p.name) ? "on" : ""}" data-act="pack" data-val="${esc(p.name)}">
+          <b>${esc(p.name.replace(/^CAH:\s*/, ""))}</b><span class="muted small">${p.white.length} white · ${p.black.length} black</span>
+          <span class="game-tick">${on.has(p.name) ? "✓ In" : "Out"}</span></button>`).join("")}</div></div>`).join("")}
+      <p class="muted small">${esc(CARDS_CREDIT)}</p>
+      <div class="row"><button class="btn ghost" data-act="pick-back">← Back</button>
+        <button class="btn big" data-act="start" ${enough ? "" : "disabled"}>Deal the cards! 🃏</button></div>
+    </div>`;
+  }
+
   async function startGame() {
     const names = live.players.map((p) => p.name);
     const cards = settings.mode === "cards";
     if (cards) {
-      deck = cardDeck(await loadCards(), !settings.filthy);
+      cardData ??= await loadCards();
+      deck = cardDeck(cardData, packsInPlay());
       pile = whitePile(deck.white, seenSet());
     }
     // Party Mix: the games ticked on the picker (the knockout games need 3+ players).
     const types = cards ? ["cards"] : playableGames().map((g) => g.type).filter((t) => settings.games.includes(t));
     const plan = buildPlan(cards ? MAX_CARD_ROUNDS : settings.rounds, types, { filthy: settings.filthy, names, seen: seenSet(), cards: deck });
+    if (cards) {
+      settings.packs = packsInPlay();
+      store.set("dg-settings", settings);
+    }
     // A couple of Party Mix rounds are buddy rounds: the winner chains a drinking buddy.
     if (!cards && settings.buddies && names.length >= 3) for (const i of buddyRounds(plan)) plan[i].buddy = true;
     markSeen(plan.map((r) => r.key));
@@ -155,7 +193,10 @@ export async function startHost(app) {
     const r = base.plan[base.idx];
     if (r.type === "cards") {
       // Top up everyone's hand, and pass the Czar round the room in joining order.
-      if (!deck) deck = cardDeck(await loadCards(), !base.settings.filthy);
+      if (!deck) {
+        cardData ??= await loadCards();
+        deck = cardDeck(cardData, base.settings.packs ?? defaultPacks(cardData, !base.settings.filthy));
+      }
       const dealt = dealHands(base.hands, pile, live.players, () => whitePile(deck.white));
       markSeen(pile.slice(0, pile.length - dealt.pile.length));
       pile = dealt.pile;
@@ -764,11 +805,16 @@ export async function startHost(app) {
     try {
       if (act === "start") {
         if (live.players.length < minPlayers(settings.mode)) return toast(`Need at least ${minPlayers(settings.mode)} players!`);
-        // Party Mix: choose the games first.
-        if (settings.mode !== "cards" && !picking) {
+        // Party Mix: choose the games first. Cards Against Sobriety: choose the decks first.
+        if (!picking) {
+          if (settings.mode === "cards") cardData ??= await loadCards();
           picking = true;
           render();
           return;
+        }
+        if (settings.mode === "cards") {
+          const { white, black } = deckSize();
+          if (black < 5 || white < live.players.length * HAND_SIZE + 10) return toast("Not enough cards! Pick a few more packs.");
         }
         if (settings.mode !== "cards" && !playableGames().some((g) => settings.games.includes(g.type))) return toast("Pick at least one game!");
         picking = false;
@@ -781,6 +827,27 @@ export async function startHost(app) {
         render();
       } else if (act === "pick-all" || act === "pick-none") {
         settings.games = act === "pick-all" ? PARTY_GAMES.map((g) => g.type) : [];
+        store.set("dg-settings", settings);
+        render();
+      } else if (act === "pack") {
+        const name = btn.dataset.val;
+        const now = packsInPlay();
+        settings.packs = now.includes(name) ? now.filter((n) => n !== name) : [...now, name];
+        store.set("dg-settings", settings);
+        render();
+      } else if (act === "packs") {
+        // Quick picks: everything, nothing, one group only, or add/remove a whole group.
+        const groups = packGroups(cardData);
+        const names = (key) => groups.find((g) => g.key === key).packs.map((p) => p.name);
+        const v = btn.dataset.val;
+        if (v === "all") settings.packs = [...names("classic"), ...names("themed"), ...names("promo")];
+        else if (v === "none") settings.packs = [];
+        else if (v === "classic" || v === "family") settings.packs = names(v);
+        else if (v.startsWith("group:")) {
+          const g = names(v.slice(6));
+          const now = packsInPlay();
+          settings.packs = g.every((n) => now.includes(n)) ? now.filter((n) => !g.includes(n)) : [...new Set([...now, ...g])];
+        }
         store.set("dg-settings", settings);
         render();
       } else if (act === "pick-back") {
@@ -862,7 +929,7 @@ export async function startHost(app) {
     switch (room.phase) {
       case "lobby":
         if (picking) {
-          body = renderPicker();
+          body = settings.mode === "cards" ? renderDeckPicker() : renderPicker();
           break;
         }
         body = `<div class="lobby">
@@ -888,7 +955,9 @@ export async function startHost(app) {
                 ? `<div class="setting"><span>First to</span>${[5, 7, 10].map((n) => `<button class="pill ${settings.target === n ? "on" : ""}" data-act="target" data-val="${n}">${n} 🃏</button>`).join("")}</div>`
                 : `<div class="setting"><span>Game length</span>${ROUND_LENGTHS.map(([n, label]) => `<button class="pill ${settings.rounds === n ? "on" : ""}" data-act="rounds" data-val="${n}">${label} · ${n}</button>`).join("")}</div>`}
               <div class="setting"><span>Timer</span>${[30, 45, 60, 90].map((n) => `<button class="pill ${settings.timer === n ? "on" : ""}" data-act="timer" data-val="${n}">${n}s</button>`).join("")}</div>
-              <div class="setting"><span>${settings.mode === "cards" ? "Deck" : "Filth level"}</span>${settings.mode === "cards" ? toggle("filthy", "🔥 Full deck (4,000+ cards)", "😇 Family Edition") : toggle("filthy", "🔥 Filthy", "😇 Mild")}</div>
+              ${settings.mode === "cards"
+                ? `<div class="setting"><span>Decks</span><span class="muted small">${settings.packs ? `${settings.packs.length} pack${settings.packs.length === 1 ? "" : "s"} picked last time` : "every official pack"} — choose on the next screen</span></div>`
+                : `<div class="setting"><span>Filth level</span>${toggle("filthy", "🔥 Filthy", "😇 Mild")}</div>`}
               ${settings.mode === "cards" ? "" : `<div class="setting"><span>Drinking buddies</span>${toggle("buddies", "🤝 On")}<span class="muted small">win a 🤝 buddy round to chain someone to your drinking</span></div>`}
               <div class="setting"><span>Rule Maker</span>${toggle("rules", "📜 On")}<span class="muted small">every ${RULE_EVERY} rounds the best player makes a house rule</span></div>
               <div class="setting"><span>Landlord voice</span>${toggle("voice", "🔊 On")}${settings.voice ? toggle("tvVoice", "📺 TV speaks", "📺 TV silent") : ""}</div>

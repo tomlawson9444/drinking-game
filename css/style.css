@@ -601,3 +601,19 @@ code { background: var(--card); padding: 2px 6px; border-radius: 6px; }
 .host-foot .btn { white-space: nowrap; flex: none; }
 .host-foot .rules-banner { min-width: 0; flex: 1 1 auto; }
 .kings-log { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 1400px; }
+
+/* Cards Against Sobriety deck picker */
+.pack-group { text-align: left; margin: 18px 0; }
+.pack-group h2 { font-family: var(--display); font-size: 1.3rem; margin-bottom: 0; display: flex; align-items: baseline; gap: 12px; }
+.pack-group h2 .link { font-family: "Nunito", system-ui, sans-serif; color: var(--beer); text-decoration: underline; }
+.pack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 8px; }
+.pack-card { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 10px 12px; border-radius: 14px; border: 2px solid var(--line); background: var(--card); opacity: 0.55; cursor: pointer; }
+.pack-card.on { opacity: 1; border-color: var(--beer); background: rgba(255, 180, 0, 0.12); }
+.pack-card b { font-size: 0.95rem; line-height: 1.2; }
+.pack-card:not(.on) .game-tick { color: var(--muted); }
+.pack-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.pack-card { padding: 7px 10px; gap: 2px; border-radius: 10px; }
+.pack-card b { font-size: 0.88rem; }
+.pack-card .game-tick { margin-top: 2px; }
+.pack-group { margin: 10px 0; }
+.pack-group p { margin: 2px 0; }
