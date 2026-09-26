@@ -1,7 +1,8 @@
 // The phone controller: join a room, answer, vote, find out if you drink.
 import { api, watchRoom, store } from "./api.js";
 import { ROUND_INFO } from "./prompts.js";
-import { norm, fillCard } from "./logic.js";
+import { norm, fillCard, isBlank } from "./logic.js";
+import { HOT_IDEAS } from "./prompts.js";
 import { createGM } from "./gm.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf } from "./ui.js";
 
@@ -19,7 +20,7 @@ export function startPlayer(app, me, onLeave) {
   // Per-round scratch state for multi-step answers (Who's Who picks, Tee K.O. drawing / shirt).
   let scratch = { round: null };
   const fresh = (round) => {
-    if (scratch.round !== round) scratch = { round, picks: [], img: null, pen: PENS[0], size: 6, slogan: "", make: {}, cards: [], win: null };
+    if (scratch.round !== round) scratch = { round, picks: [], img: null, pen: PENS[0], size: 6, slogan: "", make: {}, cards: [], win: null, blanks: {} };
     return scratch;
   };
 
@@ -50,6 +51,28 @@ export function startPlayer(app, me, onLeave) {
       render();
       return;
     }
+    if (act === "photo") {
+      $("#photo-input")?.click();
+      return;
+    }
+    if (act === "hot-vote") return send(`m${live.room.state.cur.q.i}`, { verdict: val });
+    if (act === "hot-refuse") {
+      if (confirm("Refuse to answer and drink 3?")) send(`m${live.room.state.cur.q.i}`, { refuse: true });
+      return;
+    }
+    if (act === "rule-pick") return send("rule", { text: live.room.state.cur.options[+val] });
+    if (act === "snitch") {
+      scratch.snitching = !scratch.snitching;
+      render();
+      return;
+    }
+    if (act === "snitch-on") {
+      watcher.snitch({ by: playerId, target: val });
+      scratch.snitching = false;
+      toast("Snitched! 🐀 The Landlord has been informed.");
+      render();
+      return;
+    }
     if (act === "pick") send("input", { target: val });
     else if (act === "have") send("input", { have: val === "1" });
     else if (act === "choice") send("input", { choice: +val });
@@ -64,7 +87,10 @@ export function startPlayer(app, me, onLeave) {
       render();
     } else if (act === "card-play") {
       const hand = live.room.state.hands?.[playerId] ?? [];
-      send("input", { cards: fresh(live.room.round).cards.map((i) => hand[i]) });
+      const sc = fresh(live.room.round);
+      const texts = sc.cards.map((i) => (isBlank(hand[i]) ? String(sc.blanks[i] ?? "").trim() : hand[i]));
+      if (texts.some((t) => !t)) return toast("Write something on your blank card! ✏️");
+      send("input", { cards: sc.cards.map((i) => hand[i]), texts });
     } else if (act === "czar") {
       const sc = fresh(live.room.round);
       const plays = live.room.state.cur.plays ?? [];
@@ -108,6 +134,12 @@ export function startPlayer(app, me, onLeave) {
     }
   });
   app.addEventListener("submit", (e) => {
+    if (e.target.id === "rule-form") {
+      e.preventDefault();
+      const text = $("#rule-text").value.trim();
+      if (!text) return toast("Write a rule!");
+      return send("rule", { text });
+    }
     if (e.target.id === "year-form") {
       e.preventDefault();
       const year = parseInt($("#year-val").value, 10);
@@ -133,7 +165,42 @@ export function startPlayer(app, me, onLeave) {
   });
   app.addEventListener("input", (e) => {
     if (e.target.id === "quip-text") draft = e.target.value;
+    if (e.target.dataset.blank) fresh(live.room.round).blanks[e.target.dataset.blank] = e.target.value;
     if (e.target.id === "tee-slogan") fresh(live.room.round).slogan = e.target.value;
+  });
+
+  // House rules in force, with a snitch button.
+  function rulesBar(st) {
+    const active = (st.rules ?? []).filter((r) => r.until > st.idx);
+    if (!active.length || live.room?.phase === "lobby") return "";
+    return `<div class="rules-bar"><div>📜 ${active.map((r) => esc(r.text)).join("<br>📜 ")}</div>
+      <button class="btn danger sm" data-act="snitch">🚨 Snitch</button>
+      ${scratch.snitching ? `<div class="snitch-list">${live.players.filter((p) => p.id !== playerId).map((p) => `<button class="choice" data-act="snitch-on" data-val="${p.id}">${avatar(p)}${esc(p.name)} broke it!</button>`).join("")}</div>` : ""}</div>`;
+  }
+
+  // Selfie: centre-crop to a small square JPEG before uploading.
+  app.addEventListener("change", async (e) => {
+    if (e.target.id !== "photo-input" || !e.target.files?.[0]) return;
+    try {
+      const url = URL.createObjectURL(e.target.files[0]);
+      const img = await new Promise((ok, fail) => {
+        const im = new Image();
+        im.onload = () => ok(im);
+        im.onerror = fail;
+        im.src = url;
+      });
+      const size = 128;
+      const c = document.createElement("canvas");
+      c.width = c.height = size;
+      const side = Math.min(img.width, img.height);
+      c.getContext("2d").drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      await api.setPhoto(code, token, c.toDataURL("image/jpeg", 0.7));
+      toast("Looking good 📸");
+      await watcher.refresh();
+    } catch (err) {
+      toast(err.message || "Couldn't use that photo");
+    }
   });
 
   // Finger-painting for Tee K.O. The picture is kept in scratch so re-renders don't wipe it.
@@ -214,6 +281,7 @@ export function startPlayer(app, me, onLeave) {
           <h2>You're in!</h2>
           <p class="muted">Waiting for the host to start. ${live.players.length} player${live.players.length === 1 ? "" : "s"} so far.</p>
           <div class="waiting-on">${live.players.map((p) => chip(p)).join("")}</div>
+          <button class="btn ghost" data-act="photo">${self.photo ? "📸 Retake your selfie" : "📸 Add a selfie"}</button>
           <button class="btn ${speakerOn ? "" : "ghost"} speaker-card" data-act="speaker">${speakerOn ? "🔊 You're the speaker — tap to stop" : "🔈 Be the speaker"}</button>
           <p class="muted small">No sound from the TV? Make one phone the speaker and the Landlord talks through it. Turn the volume up and keep the screen on.</p>
         </div>`;
@@ -233,15 +301,32 @@ export function startPlayer(app, me, onLeave) {
           body = timer + lockedIn();
           break;
         }
+        if (cur.type === "hot") {
+          const victim = live.players.find((p) => p.id === cur.victim);
+          if (cur.victim === playerId) {
+            body = timer + `<div class="locked pop"><div class="big-emoji">🔥</div><h2>You're in the Hot Seat!</h2><p class="muted">Everyone's writing you a question. Get your poker face on.</p></div>`;
+            break;
+          }
+          const ideas = HOT_IDEAS[st.settings?.filthy ? "filthy" : "mild"];
+          body = `${timer}<p class="prompt-sm">Ask ${esc(victim?.name ?? "them")} anything 🔥</p>
+            <form id="quip-form" class="quip-form"><textarea id="quip-text" maxlength="140" rows="3" placeholder="e.g. ${esc(ideas[Math.floor(Math.random() * ideas.length)])}">${esc(draft)}</textarea>
+            <button class="btn big" type="submit">Ask it</button></form><p class="muted center-text small">It's anonymous. Probably.</p>`;
+          break;
+        }
         if (cur.type === "cards") {
           const sc = fresh(room.round);
           const hand = st.hands?.[playerId] ?? [];
-          const preview = sc.cards.length === cur.pick ? fillCard(cur.prompt, sc.cards.map((i) => hand[i])) : null;
+          const shown = (i) => (isBlank(hand[i]) ? sc.blanks[i] || "____" : hand[i]);
+          const preview = sc.cards.length === cur.pick ? fillCard(cur.prompt, sc.cards.map(shown)) : null;
           body = `${timer}<div class="black-card sm">${esc(cur.prompt)}${cur.pick > 1 ? `<div class="pick">PICK ${cur.pick}</div>` : ""}</div>
             <p class="muted center-text">Tap ${cur.pick === 1 ? "your funniest card" : `${cur.pick} cards in order`}:</p>
             <div class="hand">${hand.map((c, i) => {
               const n = sc.cards.indexOf(i);
-              return `<button class="white-card ${n >= 0 ? "on" : ""}" data-act="card" data-val="${i}">${n >= 0 && cur.pick > 1 ? `<span class="order">${n + 1}</span>` : ""}${esc(c)}</button>`;
+              const order = n >= 0 && cur.pick > 1 ? `<span class="order">${n + 1}</span>` : "";
+              if (isBlank(c))
+                return `<div class="white-card blank ${n >= 0 ? "on" : ""}"><button class="link blank-pick" data-act="card" data-val="${i}">${order}✏️ Blank card — write your own</button>
+                  ${n >= 0 ? `<input class="blank-input" data-blank="${i}" maxlength="80" placeholder="Your answer…" value="${esc(sc.blanks[i] ?? "")}">` : ""}</div>`;
+              return `<button class="white-card ${n >= 0 ? "on" : ""}" data-act="card" data-val="${i}">${order}${esc(c)}</button>`;
             }).join("")}</div>
             ${preview ? `<p class="muted center-text">Preview: “${esc(preview)}”</p>` : ""}
             <button class="btn big" data-act="card-play" ${preview ? "" : "disabled"}>Play ${cur.pick === 1 ? "it" : "them"} 🃏</button>`;
@@ -293,6 +378,35 @@ export function startPlayer(app, me, onLeave) {
             <form id="quip-form" class="quip-form"><textarea id="quip-text" maxlength="${fib ? 60 : 80}" rows="3" placeholder="${fib ? "A convincing lie…" : "Something hilarious…"}">${esc(draft)}</textarea>
             <button class="btn big" type="submit">${fib ? "Lie 🤥" : "Send it ✍️"}</button></form>`;
         }
+        break;
+      }
+
+      case "hotq": {
+        const timer = timerBar(st.deadline, st.span ?? 40);
+        const kind = `m${cur.q.i}`;
+        const victim = live.players.find((p) => p.id === cur.victim);
+        if (cur.victim === playerId)
+          body = `${timer}<p class="muted center-text">Question ${cur.q.i + 1} of ${cur.qs.length}</p><p class="prompt-sm">${esc(cur.q.text)}</p>
+            <div class="locked"><div class="big-emoji">🗣️</div><h2>Answer out loud!</h2></div>
+            ${mySub(kind) ? "" : `<button class="btn danger big" data-act="hot-refuse">🍺 Refuse — drink 3</button>`}`;
+        else if (mySub(kind)) body = timer + lockedIn("Verdict in! ⚖️");
+        else
+          body = `${timer}<p class="prompt-sm">${esc(cur.q.text)}</p><p class="muted center-text">Is ${esc(victim?.name ?? "they")} telling the truth?</p>
+            <div class="choices two"><button class="choice cool" data-act="hot-vote" data-val="truth">😇 Truth</button>
+            <button class="choice hot" data-act="hot-vote" data-val="lie">🤥 Lie</button></div>`;
+        break;
+      }
+
+      case "rule": {
+        const timer = timerBar(st.deadline, st.span ?? 30);
+        const maker = live.players.find((p) => p.id === cur.maker);
+        if (cur.maker !== playerId) body = timer + `<div class="locked pop"><div class="big-emoji">📜</div><h2>${esc(maker?.name ?? "Someone")} is making a rule…</h2><p class="muted">Be afraid.</p></div>`;
+        else if (mySub("rule")) body = timer + lockedIn("Rule made! 📜");
+        else
+          body = `${timer}<h2 class="center-text">📜 You're the Rule Maker!</h2><p class="muted center-text">Pick a house rule for the next 3 rounds:</p>
+            <div class="choices">${cur.options.map((r, i) => `<button class="choice" data-act="rule-pick" data-val="${i}">${esc(r)}</button>`).join("")}</div>
+            <form id="rule-form" class="quip-form"><input id="rule-text" class="slogan-input" maxlength="120" placeholder="…or write your own rule">
+            <button class="btn" type="submit">Make it law ⚖️</button></form>`;
         break;
       }
 
@@ -417,11 +531,13 @@ export function startPlayer(app, me, onLeave) {
 
     const hadFocus = document.activeElement?.id === "quip-text";
     app.innerHTML = `<div class="phone">
-      <header class="phone-head" style="--c:${esc(self.color)}">${avatar(self, "sm")}<b>${esc(self.name)}</b>
+      <header class="phone-head" style="--c:${esc(self.color)}"><button class="link avatar-btn" data-act="photo" aria-label="Change photo">${avatar(self, "sm")}</button><b>${esc(self.name)}</b>
         <span class="muted">· ${code}</span><span class="spacer"></span><span class="mini">${st.settings?.mode === "cards" ? `🃏 ${st.won?.[playerId]?.length ?? 0}/${st.settings.target ?? 7}` : `${self.score} pts`} · 🍺${self.sips}</span>
         <button class="link speaker-btn ${speakerOn ? "on" : ""}" data-act="speaker" aria-label="Be the speaker">${speakerOn ? "🔊" : "🔈"}</button>
         <button class="link" data-act="leave">✕</button></header>
-      <main>${body}</main></div>`;
+      ${rulesBar(st)}
+      <main>${body}</main></div>
+      <input type="file" id="photo-input" accept="image/*" capture="user" hidden>`;
     setupCanvas();
     if (hadFocus) {
       const ta = $("#quip-text");

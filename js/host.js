@@ -1,8 +1,9 @@
 // The "TV" screen: creates the room, shows the prompts, runs the game clock and
 // gives The Landlord (the game-master voice) his cues.
 import { api, watchRoom, newToken, store } from "./api.js";
-import { ROUND_INFO, PARTY_GAMES, shuffle } from "./prompts.js";
-import { buildPlan, allIn, expected, quipAnswers, fibOptions, scoreRound, brawlInit, brawlNext, brawlRecord, teeOffers, teeShirts, stiTwists, stiPosts, whitePile, dealHands, cardPlays, discardPlays, fillCard } from "./logic.js";
+import { ROUND_INFO, PARTY_GAMES, RULES, WHEEL, shuffle } from "./prompts.js";
+import { buildPlan, allIn, expected, quipAnswers, fibOptions, scoreRound, brawlInit, brawlNext, brawlRecord, teeOffers, teeShirts, stiTwists, stiPosts, whitePile, dealHands, cardPlays, discardPlays, fillCard,
+  isBlank, wheelSpin, hotVictim, hotQuestions } from "./logic.js";
 import { createGM } from "./gm.js";
 import { loadCards, cardDeck, CARDS_CREDIT } from "./cards.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf } from "./ui.js";
@@ -14,10 +15,14 @@ const MAX_HOLD_MS = 30000; // longest we'll wait for the Landlord to finish talk
 const MATCH_S = 15; // each knockout match
 const CHAMBER_S = 20; // the Drinking Chamber
 const DRAW_S = 90; // minimum time to draw a Tee K.O. shirt
-const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted|Czar's favourite/;
+const HOTQ_S = 40; // each Hot Seat question
+const RULE_S = 30; // the Rule Maker's time to choose
+const RULE_EVERY = 3; // a Rule Maker every few rounds
+const RULE_ROUNDS = 3; // how long a house rule lasts
+const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted|Czar's favourite|Believed|Pity points/;
 
 const DEFAULT_SETTINGS = {
-  mode: "party", rounds: 10, target: 7, timer: 45, filthy: true, voice: true, tvVoice: true,
+  mode: "party", rounds: 10, target: 7, timer: 45, filthy: true, voice: true, tvVoice: true, rules: true,
   games: PARTY_GAMES.map((g) => g.type), // Party Mix games picked on the game-picker screen
 };
 const MAX_CARD_ROUNDS = 150; // Cards Against Sobriety ends when someone collects `target` black cards
@@ -153,7 +158,11 @@ export async function startHost(app) {
     try {
       if (room.phase === "intro" && ready(st.until, now)) {
         if (cur.type === "social") await set("reveal", room.round, { ...st, cur: { ...cur, view: {} }, until: now + REVEAL_MS });
-        else {
+        else if (cur.type === "wheel") await reveal(room, st, { ...cur, spin: wheelSpin(live.players) });
+        else if (cur.type === "hot") {
+          const victim = hotVictim(live.players, st.hotSeen);
+          await set("input", room.round, { ...st, hotSeen: [...(st.hotSeen ?? []), victim], cur: { ...cur, victim }, deadline: now + timer, span: timer / 1000 });
+        } else {
           const secs = cur.type === "tee" ? Math.max(DRAW_S, timer / 1000) : timer / 1000;
           // Out of Context: everyone gets their own innocent question.
           const extra = cur.type === "sti" ? { ask: Object.fromEntries(live.players.map((p, i) => [p.id, cur.questions[i % cur.questions.length]])) } : {};
@@ -173,6 +182,10 @@ export async function startHost(app) {
           const czarHere = live.players.some((p) => p.id === cur.czar);
           if (plays.length && czarHere) await set("vote", room.round, { ...st, cur: { ...cur, plays }, deadline: now + voteTime, span: voteTime / 1000 });
           else await reveal(room, st, { ...cur, plays });
+        } else if (cur.type === "hot") {
+          const qs = hotQuestions(live.subs, cur.victim);
+          if (qs.length) await set("hotq", room.round, { ...st, cur: { ...cur, qs, q: qs[0] }, deadline: now + HOTQ_S * 1000, span: HOTQ_S });
+          else await reveal(room, st, { ...cur, qs });
         } else if (cur.type === "brawl") {
           await startBracket(room, st, { ...cur, entries: quipAnswers(live.subs) });
         } else if (cur.type === "tee") {
@@ -202,6 +215,13 @@ export async function startHost(app) {
         const posts = stiPosts(live.subs, cur.twists);
         if (posts.length >= 2) await set("vote", room.round, { ...st, cur: { ...cur, posts }, deadline: now + voteTime, span: voteTime / 1000 });
         else await reveal(room, st, { ...cur, posts });
+      } else if (room.phase === "hotq" && (now >= st.deadline || allIn("hotq", cur, live.players, live.subs) || live.subs.some((x) => x.kind === `m${cur.q.i}` && x.player_id === cur.victim && x.value?.refuse))) {
+        // Next question, or the verdicts.
+        const nextQ = cur.qs[cur.q.i + 1];
+        if (nextQ) await set("hotq", room.round, { ...st, cur: { ...cur, q: nextQ }, deadline: now + HOTQ_S * 1000, span: HOTQ_S });
+        else await reveal(room, st, cur);
+      } else if (room.phase === "rule" && (now >= st.deadline || allIn("rule", cur, live.players, live.subs))) {
+        await finishRule(room, st);
       } else if (room.phase === "match" && (now >= st.deadline || allIn("match", cur, live.players, live.subs))) {
         await nextMatch(room, st, { ...cur, br: brawlRecord(cur.br, cur.match, live.subs) });
       } else if (room.phase === "reveal" && ready(st.until, now)) {
@@ -235,6 +255,9 @@ export async function startHost(app) {
   async function reveal(room, st, cur) {
     if (cur.type === "cards") st = { ...st, hands: discardPlays(st.hands, cur.plays) };
     const { deltas, view } = scoreRound(cur, live.players, live.subs);
+    // Wheel of Doom "double points next round".
+    if (st.double === st.idx) for (const d of Object.values(deltas)) if (d.score > 0) (d.score *= 2), d.why.push("Double points!");
+    if (cur.type === "wheel" && view.segment?.effect === "double") st = { ...st, double: st.idx + 1 };
     // The Czar's favourite collects the black card.
     if (cur.type === "cards" && view.win) st = { ...st, won: { ...st.won, [view.win]: [...(st.won?.[view.win] ?? []), cur.prompt] } };
     const list = Object.entries(deltas).map(([id, d]) => ({ id, score: d.score, sips: d.sips }));
@@ -243,12 +266,37 @@ export async function startHost(app) {
     await set("reveal", room.round, { ...st, cur: { ...cur, view, deltas }, until: Date.now() + REVEAL_MS });
   }
 
+  // State that lives across rounds (the rest of `st` belongs to the current round).
+  const carry = (st) => ({
+    plan: st.plan, settings: st.settings, idx: st.idx, hands: st.hands, won: st.won,
+    rules: st.rules, double: st.double, hotSeen: st.hotSeen, ruleDone: st.ruleDone,
+  });
+
   async function next(room, st) {
     const idx = st.idx + 1;
     // Cards Against Sobriety: first to the target number of black cards wins.
     const champ = st.won && Object.values(st.won).some((cards) => cards.length >= (st.settings.target ?? 7));
-    if (idx >= st.plan.length || champ) await set("final", room.round, { ...st });
-    else await beginRound({ plan: st.plan, settings: st.settings, idx, hands: st.hands, won: st.won }, room.round + 1);
+    if (idx >= st.plan.length || champ) return set("final", room.round, { ...st });
+    // Every few rounds, the last round's best player makes a house rule first.
+    if (st.settings.rules && idx % RULE_EVERY === 0 && st.ruleDone !== st.idx && live.players.length >= 2) {
+      const best = Object.entries(st.cur?.deltas ?? {}).sort((a, b) => b[1].score - a[1].score)[0];
+      const maker = best && best[1].score > 0 ? best[0] : shuffle(live.players)[0].id;
+      return set("rule", room.round, {
+        ...carry(st), ruleDone: st.idx, cur: { type: "rule", maker, options: shuffle(RULES).slice(0, 4) },
+        deadline: Date.now() + RULE_S * 1000, span: RULE_S,
+      });
+    }
+    await beginRound({ ...carry(st), idx }, room.round + 1);
+  }
+
+  // The Rule Maker has chosen (or run out of time): add the rule, then carry on.
+  async function finishRule(room, st) {
+    const cur = st.cur;
+    const sub = live.subs.find((x) => x.kind === "rule" && x.player_id === cur.maker);
+    const text = String(sub?.value?.text ?? "").trim().slice(0, 120) || cur.options[0];
+    const rules = [...(st.rules ?? []).filter((r) => r.until > st.idx + 1), { text, by: cur.maker, until: st.idx + 1 + RULE_ROUNDS }];
+    gm.line("rule", { name: live.players.find((p) => p.id === cur.maker)?.name ?? "The Rule Maker", rule: text });
+    await beginRound({ ...carry(st), rules, idx: st.idx + 1 }, room.round + 1);
   }
 
   // The Landlord's cues, fired once per phase change.
@@ -267,6 +315,7 @@ export async function startHost(app) {
         else if (cur.type === "tee") gm.say("Draw something on your phone, and write a slogan. Filth encouraged.", { caption: false });
         else if (cur.type === "sti") gm.say("Answer the question on your phone. Honestly. What could possibly go wrong?", { caption: false });
         else if (cur.type === "cards") gm.say(`${nameOf(cur.czar) ?? "The Czar"} is the Card Czar. ${cur.prompt}`, { caption: false });
+        else if (cur.type === "hot") gm.say(`${nameOf(cur.victim) ?? "Someone"} is in the hot seat. Everyone else, write them a question.`, { caption: false });
         else gm.say(cur.prompt, { caption: false });
         break;
       case "vote": {
@@ -283,11 +332,23 @@ export async function startHost(app) {
       case "match":
         gm.say(`${cur.match?.label ?? "Next match"}. Fight!`, { caption: false });
         break;
+      case "hotq":
+        gm.say(cur.q.text, { caption: false });
+        break;
+      case "rule":
+        gm.say(`${nameOf(cur.maker) ?? "Someone"} is the Rule Maker. Choose wisely. Or cruelly.`, { caption: false });
+        break;
       case "twist":
         gm.say("Now for the fun part. You've been given someone else's answer. Tell us where it was really posted.", { caption: false });
         break;
       case "reveal":
         if (cur.type === "social") gm.say(cur.prompt, { caption: false });
+        else if (cur.type === "wheel") {
+          // Let the wheel stop spinning first.
+          const seg = cur.view?.segment;
+          const who = nameOf(cur.spin?.victim) ?? "Someone";
+          setTimeout(() => gm.say((seg?.say ?? seg?.label ?? "").replace("{name}", who)), 4300);
+        }
         else if (cur.type === "cards" && cur.view?.win) {
           const win = cur.view.plays.find((p) => p.pid === cur.view.win);
           gm.say(fillCard(cur.prompt, win.cards), { caption: false }).then(() => roastRound(cur));
@@ -355,6 +416,12 @@ export async function startHost(app) {
       case "cards":
         vars = { winner: nameOf(v.win), name: nameOf(v.worst), czar: nameOf(cur.czar) };
         break;
+      case "hot": {
+        const busted = (v.results ?? []).some((q) => q.refused || q.lie.length > q.truth.length);
+        if (!busted) key = "hot_clean";
+        vars = { name: nameOf(cur.victim) };
+        break;
+      }
       case "sti": {
         const top = (v.results ?? []).find((x) => x.winner);
         vars = { winner: nameOf(top?.pid), victim: nameOf(top?.from), name: any(drinking("Zero votes")) };
@@ -422,7 +489,7 @@ export async function startHost(app) {
         settings[act] = +btn.dataset.val;
         store.set("dg-settings", settings);
         render();
-      } else if (["social", "filthy", "voice", "tvVoice"].includes(act)) {
+      } else if (["social", "filthy", "voice", "tvVoice", "rules"].includes(act)) {
         settings[act] = !settings[act];
         store.set("dg-settings", settings);
         if ((act === "voice" || act === "tvVoice") && settings.voice) gm.say("Testing. One, two. Can the cheap seats hear me?");
@@ -493,6 +560,7 @@ export async function startHost(app) {
                 : `<div class="setting"><span>Rounds</span>${[6, 10, 15, 20].map((n) => `<button class="pill ${settings.rounds === n ? "on" : ""}" data-act="rounds" data-val="${n}">${n}</button>`).join("")}</div>`}
               <div class="setting"><span>Timer</span>${[30, 45, 60, 90].map((n) => `<button class="pill ${settings.timer === n ? "on" : ""}" data-act="timer" data-val="${n}">${n}s</button>`).join("")}</div>
               <div class="setting"><span>${settings.mode === "cards" ? "Deck" : "Filth level"}</span>${settings.mode === "cards" ? toggle("filthy", "🔥 Full deck (4,000+ cards)", "😇 Family Edition") : toggle("filthy", "🔥 Filthy", "😇 Mild")}</div>
+              <div class="setting"><span>Rule Maker</span>${toggle("rules", "📜 On")}<span class="muted small">every ${RULE_EVERY} rounds the best player makes a house rule</span></div>
               <div class="setting"><span>Landlord voice</span>${toggle("voice", "🔊 On")}${settings.voice ? toggle("tvVoice", "📺 TV speaks", "📺 TV silent") : ""}</div>
               ${settings.voice ? `<p class="muted small">${gm.canSpeak() ? "" : "⚠️ This TV browser has no voice. "}No sound from the TV? On one phone, tap <b>🔈 Be the speaker</b> and the Landlord talks through that phone instead (or a Bluetooth speaker connected to it).</p>` : ""}
             </div>
@@ -514,6 +582,8 @@ export async function startHost(app) {
       case "input":
       case "vote":
       case "twist":
+      case "hotq":
+      case "rule":
       case "match": {
         const { kind, ids } = expected(room.phase, cur, live.players);
         const who = room.phase === "input" ? live.players : live.players.filter((p) => ids.includes(p.id));
@@ -553,7 +623,7 @@ export async function startHost(app) {
         break;
       }
     }
-    app.innerHTML = `<div class="host">${header}<main>${body}</main>${controls}</div>`;
+    app.innerHTML = `<div class="host">${header}<main>${body}</main>${room.phase === "lobby" ? "" : rulesBanner(st)}${controls}</div>`;
 
     const qr = $("#qr");
     if (qr && window.qrcode) {
@@ -575,6 +645,16 @@ export async function startHost(app) {
       return `<h2 class="kicker">${esc(m.label)}</h2>${cur.type === "brawl" ? `<h2 class="prompt sm">${esc(cur.prompt)}</h2>` : ""}
         <div class="versus"><div class="fighter a pop">${side(m.a)}</div><div class="vs">VS</div><div class="fighter b pop">${side(m.b)}</div></div>
         <p class="kicker">Tap your favourite on your phone!</p>`;
+    }
+    if (phase === "rule") {
+      return `<div class="spotlight pop">${avatar(byId[cur.maker], "xl")}<div>📜 ${name(cur.maker)} is the Rule Maker!</div></div>
+        <p class="rules">They're choosing a house rule on their phone. It lasts ${RULE_ROUNDS} rounds. Break it and anyone can snitch.</p>`;
+    }
+    if (phase === "hotq") {
+      return `<div class="spotlight pop">${avatar(byId[cur.victim], "xl")}<div>🔥 ${name(cur.victim)} is in the Hot Seat</div></div>
+        <p class="muted">Question ${cur.q.i + 1} of ${cur.qs.length} · anonymous</p>
+        <h1 class="prompt">${esc(cur.q.text)}</h1>
+        <p class="kicker">${name(cur.victim)}, answer out loud! Everyone else: truth 😇 or lie 🤥?</p>`;
     }
     if (phase === "twist") return `<h1 class="prompt">Everyone's been handed someone else's answer…</h1>
       <p class="kicker">Now say where it was REALLY posted. Make it hurt.</p>`;
@@ -613,6 +693,9 @@ export async function startHost(app) {
         return `<h1 class="prompt">Design a T-shirt!</h1><p class="kicker">Draw a picture and write a slogan on your phone. Everything gets mixed up later…</p>`;
       case "sti":
         return `<h1 class="prompt">Answer your question on your phone.</h1><p class="kicker">Honestly. Innocently. What could possibly go wrong?</p>`;
+      case "hot":
+        return `<div class="spotlight pop">${avatar(byId[cur.victim], "xl")}<div>🔥 ${name(cur.victim)} is in the Hot Seat!</div></div>
+          <p class="kicker">Everyone else: write them a question on your phone. Make it hurt.</p>`;
       case "cards":
         return `${blackCard(cur.prompt, cur.pick)}<p class="kicker">👑 Card Czar: ${name(cur.czar)} — everyone else, play ${cur.pick === 1 ? "a card" : `${cur.pick} cards`} from your phone!</p>`;
       default: {
@@ -626,6 +709,34 @@ export async function startHost(app) {
         return `<h1 class="prompt">${esc(cur.prompt)}</h1><p class="kicker">${hint ?? ""}</p>`;
       }
     }
+  }
+
+  // Wheel of Doom: an SVG wheel that spins to land on segment `index` (the pointer is at the top).
+  function wheelSvg(index) {
+    const n = WHEEL.length;
+    const slice = 360 / n;
+    const colours = ["#ff4f79", "#ffb400", "#3ddc97", "#4cc9f0", "#b388ff", "#ff8a3d"];
+    const seg = (i) => {
+      const a0 = ((i * slice - 90) * Math.PI) / 180;
+      const a1 = (((i + 1) * slice - 90) * Math.PI) / 180;
+      const mid = (((i + 0.5) * slice - 90) * Math.PI) / 180;
+      return `<path d="M100 100 L${100 + 95 * Math.cos(a0)} ${100 + 95 * Math.sin(a0)} A95 95 0 0 1 ${100 + 95 * Math.cos(a1)} ${100 + 95 * Math.sin(a1)} Z" fill="${colours[i % colours.length]}" stroke="#1a0b2e" stroke-width="1.5"/>
+        <text x="${100 + 64 * Math.cos(mid)}" y="${100 + 64 * Math.sin(mid)}" font-size="16" text-anchor="middle" dominant-baseline="middle">${WHEEL[i].emoji}</text>`;
+    };
+    // Five full turns, then stop with the chosen segment's middle under the pointer.
+    const turn = 5 * 360 + (360 - (index + 0.5) * slice);
+    return `<div class="wheel-wrap"><div class="wheel-pointer">▼</div>
+      <svg class="wheel" viewBox="0 0 200 200" style="--turn:${turn}deg">${WHEEL.map((_, i) => seg(i)).join("")}<circle cx="100" cy="100" r="14" fill="#1a0b2e"/></svg></div>`;
+  }
+  const wheelLabel = (seg, spin, byId) => String(seg?.label ?? "").replace("{name}", byId[spin?.victim]?.name ?? "Someone");
+
+  // House rules in force, shown in the corner of the TV.
+  function rulesBanner(st) {
+    const active = (st.rules ?? []).filter((r) => r.until > st.idx);
+    if (!active.length) return "";
+    const byId = Object.fromEntries(live.players.map((p) => [p.id, p]));
+    return `<aside class="rules-banner"><b>📜 House rules</b>${active.map((r) => `<div class="rule-item">${esc(r.text)}
+      <small>— ${esc(byId[r.by]?.name ?? "?")} · ${r.until - st.idx} round${r.until - st.idx === 1 ? "" : "s"} left</small></div>`).join("")}</aside>`;
   }
 
   // Cards Against Sobriety: the black card, and a black card filled in with white cards.
@@ -722,6 +833,14 @@ export async function startHost(app) {
       case "sti":
         main = (v.results ?? []).length ? stiCards(v.results, byId, true) : `<p>No twists?! Everybody drinks.</p>`;
         break;
+      case "hot":
+        main = `<div class="spotlight pop">${avatar(byId[cur.victim], "xl")}<div>🔥 ${name(cur.victim)}'s verdicts</div></div>
+          <div class="tally">${(v.results ?? []).map((q) => `<div class="tally-row"><span class="hot-q">${esc(q.text)}</span>
+            <b>${q.refused ? "🍺 Refused" : q.lie.length > q.truth.length ? `🤥 LIE (${q.lie.length}–${q.truth.length})` : `😇 Truth (${q.truth.length}–${q.lie.length})`}</b></div>`).join("") || `<p>Nobody asked anything?! Cowards. Everybody drinks.</p>`}</div>`;
+        break;
+      case "wheel":
+        main = wheelSvg(cur.spin?.index ?? 0) + `<div class="wheel-result pop">${esc((v.segment?.emoji ?? "") + " " + wheelLabel(v.segment, cur.spin, byId))}</div>`;
+        break;
       case "cards": {
         const plays = [...(v.plays ?? [])].sort((a, b) => (b.pid === v.win) - (a.pid === v.win) || (a.pid === v.worst) - (b.pid === v.worst));
         main = `<p class="kicker">👑 Czar: ${chip(byId[cur.czar])}</p>
@@ -738,6 +857,19 @@ export async function startHost(app) {
         .join("")}</div>` : ""}`;
   }
 
+  // A phone reports a rule-breaker: announce it and add a sip (one snitch per phone every 20s).
+  const lastSnitch = new Map();
+  async function onSnitch({ by, target } = {}) {
+    const st = live.room?.state ?? {};
+    const byP = live.players.find((p) => p.id === by);
+    const target_ = live.players.find((p) => p.id === target);
+    if (!byP || !target_ || by === target || !(st.rules ?? []).some((r) => r.until > st.idx)) return;
+    if (Date.now() - (lastSnitch.get(by) ?? 0) < 20000) return;
+    lastSnitch.set(by, Date.now());
+    gm.line("snitch", { by: byP.name, name: target_.name });
+    await api.apply(code, token, [{ id: target, score: 0, sips: 1 }]).catch(() => {});
+  }
+
   let lastSig = "";
   let lastPhase = null;
   // Voices load asynchronously; refresh the lobby's "can this TV talk?" hint when they arrive.
@@ -748,11 +880,11 @@ export async function startHost(app) {
     const sig = JSON.stringify([l.room, l.players, l.subs.map((s) => s.player_id + s.kind)]);
     if (sig !== lastSig) render();
     lastSig = sig;
-    const phaseKey = l.room && `${l.room.phase}:${l.room.round}:${l.room.state?.cur?.match?.m ?? ""}`;
+    const phaseKey = l.room && `${l.room.phase}:${l.room.round}:${l.room.state?.cur?.match?.m ?? ""}:${l.room.state?.cur?.q?.i ?? ""}`;
     if (lastPhase !== null && phaseKey !== lastPhase && l.room) announce(l.room);
     lastPhase = phaseKey;
     step();
-  });
+  }, { onSnitch });
   setInterval(() => step(), 500);
   return watcher;
 }

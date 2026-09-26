@@ -336,3 +336,35 @@ code { background: var(--card); padding: 2px 6px; border-radius: 6px; }
 .game-blurb { color: var(--muted); font-size: 0.9rem; }
 .game-tick { margin-top: auto; font-weight: 900; color: var(--beer); font-size: 0.85rem; }
 .game-card:not(.on) .game-tick { color: var(--muted); }
+
+/* Photos */
+.avatar.photo { overflow: hidden; padding: 0; }
+.avatar.photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar-btn { padding: 0; }
+
+/* House rules */
+.rules-banner {
+  position: fixed; right: 16px; top: 70px; z-index: 40; max-width: 300px; padding: 12px 14px; border-radius: 14px;
+  background: rgba(10, 4, 20, 0.85); border: 2px solid var(--beer); font-size: 0.95rem; text-align: left;
+}
+.rules-banner b { font-family: var(--display); color: var(--beer); display: block; margin-bottom: 4px; }
+.rule-item { margin-top: 6px; font-weight: 700; }
+.rule-item small { display: block; color: var(--muted); font-weight: 400; }
+.rules-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 16px; background: rgba(255, 180, 0, 0.12); border-bottom: 1px solid var(--line); font-size: 0.85rem; font-weight: 700; }
+.snitch-list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+
+/* Hot Seat */
+.hot-q { flex: 1; font-weight: 700; }
+
+/* Wheel of Doom */
+.wheel-wrap { position: relative; width: min(360px, 70vw); margin: 10px auto; }
+.wheel { width: 100%; height: auto; animation: wheel-spin 4s cubic-bezier(0.15, 0.85, 0.25, 1) forwards; }
+.wheel-pointer { position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 2rem; color: var(--beer); z-index: 2; text-shadow: 0 2px 0 #1a0b2e; }
+@keyframes wheel-spin { from { transform: rotate(0deg); } to { transform: rotate(var(--turn)); } }
+.wheel-result { font-family: var(--display); font-size: clamp(1.4rem, 3.5vw, 2.4rem); color: var(--beer); margin-top: 12px; animation-delay: 4s; }
+
+/* Blank white cards */
+.white-card.blank { display: flex; flex-direction: column; gap: 8px; border-style: dashed; border-color: #b8a58a; }
+.white-card.blank.on { border-style: solid; border-color: var(--beer); }
+.blank-pick { text-align: left; color: #1a0b2e; font-weight: 900; font-size: 1.05rem; padding: 0; }
+.blank-input { border: 2px solid var(--beer); border-radius: 10px; padding: 10px; font-size: 1.05rem; font-weight: 700; color: #1a0b2e; background: #fff; }

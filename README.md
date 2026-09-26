@@ -16,10 +16,15 @@ text-to-speech and his lines are pre-written in `js/prompts.js`, so there are no
    **Clear**), then **Let's go**. Your picks are remembered for next time.
 4. During the game the host screen has **Skip ⏭**, **Back to lobby** and **🏁 End game** (finish early and
    jump straight to the final scores).
-5. **No sound from the TV?** Many TV browsers have no speech voices. On any phone tap **🔈 Be the speaker**
+5. **📸 Selfies:** on your phone tap **Add a selfie** in the lobby (or your avatar at the top any time) and your
+   photo appears on the TV wherever your name does.
+6. **📜 Rule Maker** (lobby toggle, on by default): every 3 rounds the last round's best player picks a house
+   rule on their phone — from a list, or their own — which lasts 3 rounds and shows in the corner of the TV.
+   Break it and anyone can tap **🚨 Snitch** on their phone; the Landlord names and shames you (+1 sip).
+7. **No sound from the TV?** Many TV browsers have no speech voices. On any phone tap **🔈 Be the speaker**
    and the Landlord talks through that phone instead (or a Bluetooth speaker paired with it). Keep that
    phone's screen on. The lobby's **📺 TV speaks** toggle stops the TV talking if both would.
-6. **Refreshing the host screen closes the room**: the game is cancelled, everyone is sent back to the start
+8. **Refreshing the host screen closes the room**: the game is cancelled, everyone is sent back to the start
    screen, and a fresh room with a new code opens. (**New room** in the lobby does the same.)
 
 ### Two ways to play
@@ -32,7 +37,8 @@ Pick the **Game** in the lobby:
   cards** on their phone. Each round one player's phone is the **👑 Card Czar** (it passes round the room in
   joining order — never the TV). Everyone else plays their card(s) and draws back up to 7; the Czar keeps
   their hand. The Czar's favourite **wins the black card** (the least favourite drinks 2), and the **first
-  to 7 black cards** (or 5 / 10 — pick in the lobby) wins the game. Needs 3+ players.
+  to 7 black cards** (or 5 / 10 — pick in the lobby) wins the game. Needs 3+ players. About 1 in 20 dealt
+  cards is a **✏️ blank card**: play it and write your own answer.
 
   The cards come from [JSON Against Humanity](https://github.com/crhallberg/json-against-humanity) and are
   © Cards Against Humanity LLC, licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
@@ -54,6 +60,8 @@ Pick the **Game** in the lobby:
 | 🥊 **Pub Brawl** *(Bracketeering)* | Everyone answers, then answers fight head-to-head in a knockout bracket | Every knocked-out answer drinks 1. Champion +500 |
 | 👕 **Tee K.O.** | Draw a picture and write a slogan on your phone, build a shirt from your mates' work, then shirts fight in a bracket | Every knocked-out shirt's maker drinks 1 |
 | 📱 **Out of Context** *(Survive the Internet)* | Answer an innocent question; someone else reveals where it was "really posted" | Twists with zero votes drink 2 |
+| 🔥 **Hot Seat** | One player's in the hot seat; everyone writes them a question, they answer out loud, the rest vote truth or lie | Voted a liar: 2 sips · refusing a question: 3 |
+| 🎡 **Wheel of Doom** | The TV spins a wheel: everyone drinks, leader tax, a random victim, double points next round, waterfalls, pity points… | Whatever the wheel says |
 | 🍻 **Social** | A rule for the whole room | Whoever the rule says |
 
 **Filth level:** 🔥 Filthy (default — sex, bodily functions, brutal roasts; prompts get personalised with

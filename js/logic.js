@@ -1,9 +1,9 @@
 // Pure game rules: building the round plan and scoring a round.
 // No DOM or network here so it can be tested with plain Node.
-import { MILD, FILTHY, FIBS, YEARS, TRIVIA, ROLE_SETS, TEE_IDEAS, STI_QUESTIONS, STI_CONTEXTS, shuffle } from "./prompts.js";
+import { MILD, FILTHY, FIBS, YEARS, TRIVIA, ROLE_SETS, TEE_IDEAS, STI_QUESTIONS, STI_CONTEXTS, WHEEL, shuffle } from "./prompts.js";
 import { HAND_SIZE } from "./cards.js";
 
-const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, social: 1 };
+const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, hot: 1, wheel: 1, social: 1 };
 
 // A stable key for a prompt, used to remember what a group has already played.
 export const promptKey = (p) => (typeof p === "string" ? p : Array.isArray(p) ? p.join(" / ") : p.q ?? p.title ?? p.text ?? JSON.stringify(p));
@@ -38,7 +38,7 @@ export function buildPlan(rounds, types, opts = {}) {
     if (!options.length) options = bag;
     const type = options[Math.floor(Math.random() * options.length)];
     // Pub Brawl answers quip prompts, so it shares the quip deck.
-    const p = type === "tee" || type === "sti" ? null : draw(type === "brawl" ? "quip" : type);
+    const p = ["tee", "sti", "hot", "wheel"].includes(type) ? null : draw(type === "brawl" ? "quip" : type);
     const key = p ? promptKey(p) : null;
     if (type === "fib") plan.push({ type, prompt: p.q, truth: p.a });
     else if (type === "year") plan.push({ type, prompt: p.q, year: p.year });
@@ -51,6 +51,8 @@ export function buildPlan(rounds, types, opts = {}) {
     } else if (type === "tee") plan.push({ type, prompt: "Design a T-shirt", ideas: shuffle(TEE_IDEAS) });
     else if (type === "sti") plan.push({ type, prompt: "Out of Context", questions: shuffle(STI_QUESTIONS), contexts: shuffle(STI_CONTEXTS) });
     else if (type === "cards") plan.push({ type, prompt: p.text, pick: p.pick ?? blanks(p.text) });
+    else if (type === "hot") plan.push({ type, prompt: "Hot Seat" });
+    else if (type === "wheel") plan.push({ type, prompt: "Wheel of Doom" });
     else if (type === "wyr") plan.push({ type, prompt: p.map(fill) });
     else plan.push({ type, prompt: fill(p) });
     if (key) plan[plan.length - 1].key = key;
@@ -66,6 +68,11 @@ export function expected(phase, round, players) {
   // Cards Against Sobriety: everyone but the Czar plays; only the Czar judges.
   if (phase === "input" && round.type === "cards") return { kind: "input", ids: players.filter((p) => p.id !== round.czar).map((p) => p.id) };
   if (phase === "vote" && round.type === "cards") return { kind: "vote", ids: players.filter((p) => p.id === round.czar).map((p) => p.id) };
+  // Hot Seat: everyone but the victim writes a question, then votes truth/lie on each answer.
+  if (phase === "input" && round.type === "hot") return { kind: "input", ids: players.filter((p) => p.id !== round.victim).map((p) => p.id) };
+  if (phase === "hotq" && round.q) return { kind: `m${round.q.i}`, ids: players.filter((p) => p.id !== round.victim).map((p) => p.id) };
+  // Rule Maker: only the maker picks.
+  if (phase === "rule") return { kind: "rule", ids: players.filter((p) => p.id === round.maker).map((p) => p.id) };
   if (phase === "input") return { kind: "input", ids: players.map((p) => p.id) };
   if (phase === "vote" && round.type === "quip") {
     // Everyone votes, except someone whose own answer is the only one they could pick.
@@ -225,8 +232,17 @@ export function fillCard(text, cards) {
 
 // A fresh draw pile of white cards: ones this screen hasn't dealt before first, then the rest.
 export function whitePile(whites, seen = new Set()) {
-  return [...shuffle(whites.filter((c) => seen.has(c))), ...shuffle(whites.filter((c) => !seen.has(c)))].reverse();
+  const pile = [...shuffle(whites.filter((c) => seen.has(c))), ...shuffle(whites.filter((c) => !seen.has(c)))].reverse();
+  // Sprinkle in blank cards (about 1 in 20) that the player writes themselves.
+  return pile.flatMap((c) => (Math.random() < BLANK_RATE ? [newBlank(), c] : [c]));
 }
+
+// Blank white cards: a unique marker in the hand; the player types the text when they play it.
+export const BLANK = "✏️BLANK#";
+const BLANK_RATE = 0.05;
+let blankSeq = 0;
+const newBlank = () => `${BLANK}${Date.now().toString(36)}${blankSeq++}`;
+export const isBlank = (card) => String(card).startsWith(BLANK);
 
 // Top every player's hand back up to HAND_SIZE from the front of the pile.
 // `restock` supplies a fresh pile if it runs out.
@@ -245,20 +261,48 @@ export function dealHands(hands, pile, players, restock) {
 }
 
 // The valid plays this round: exactly `pick` distinct cards, all from the player's own hand.
+// `used` are the hand cards played; `cards` is what's shown (a blank card shows what they wrote).
 export function cardPlays(subs, hands, round) {
   return shuffle(
     subs
       .filter((s) => s.kind === "input" && s.player_id !== round.czar)
-      .map((s) => ({ pid: s.player_id, cards: (s.value?.cards ?? []).map(String) }))
-      .filter((p) => p.cards.length === round.pick && new Set(p.cards).size === p.cards.length && p.cards.every((c) => hands?.[p.pid]?.includes(c))),
+      .map((s) => {
+        const used = (s.value?.cards ?? []).map(String);
+        const typed = s.value?.texts ?? [];
+        const cards = used.map((c, i) => (isBlank(c) ? String(typed[i] ?? "").trim().slice(0, 80) : c));
+        return { pid: s.player_id, used, cards };
+      })
+      .filter((p) => p.used.length === round.pick && new Set(p.used).size === p.used.length && p.cards.every(Boolean) && p.used.every((c) => hands?.[p.pid]?.includes(c))),
   );
 }
 
 // Take played cards out of hands (they get topped up next round).
 export function discardPlays(hands, plays) {
   const next = { ...hands };
-  for (const p of plays ?? []) next[p.pid] = (next[p.pid] ?? []).filter((c) => !p.cards.includes(c));
+  for (const p of plays ?? []) next[p.pid] = (next[p.pid] ?? []).filter((c) => !(p.used ?? p.cards).includes(c));
   return next;
+}
+
+// ------------------------------------------------------------------ Wheel of Doom
+
+// Spin: which segment, plus a random victim for the segments that need one.
+export function wheelSpin(players) {
+  return { index: Math.floor(Math.random() * WHEEL.length), victim: shuffle(players)[0]?.id ?? null };
+}
+
+// ------------------------------------------------------------------ Hot Seat
+
+// Next victim: someone who hasn't been in the hot seat yet this game (else anyone).
+export function hotVictim(players, seen = []) {
+  const fresh = players.filter((p) => !seen.includes(p.id));
+  return shuffle(fresh.length ? fresh : players)[0]?.id ?? null;
+}
+
+// Up to three questions, from different askers.
+export function hotQuestions(subs, victim) {
+  return shuffle(subs.filter((s) => s.kind === "input" && s.player_id !== victim && String(s.value?.text ?? "").trim()))
+    .slice(0, 3)
+    .map((s, i) => ({ i, from: s.player_id, text: String(s.value.text).trim().slice(0, 140) }));
 }
 
 // Returns { deltas: {pid: {score, sips, why[]}}, view: {...type specific display data} }
@@ -442,6 +486,37 @@ export function scoreRound(round, players, subs) {
       view.results = posts
         .map((x) => ({ ...x, voters: got[x.pid], winner: top > 0 && got[x.pid].length === top }))
         .sort((a, b) => b.voters.length - a.voters.length);
+      break;
+    }
+    case "hot": {
+      const victim = round.victim;
+      const results = (round.qs ?? []).map((q) => {
+        const vs = subs.filter((x) => x.kind === `m${q.i}`);
+        const refused = vs.some((x) => x.player_id === victim && x.value?.refuse);
+        const truth = vs.filter((x) => x.player_id !== victim && x.value?.verdict === "truth").map((x) => x.player_id);
+        const lie = vs.filter((x) => x.player_id !== victim && x.value?.verdict === "lie").map((x) => x.player_id);
+        if (refused) add(victim, 0, 3, "Refused to answer");
+        else if (lie.length > truth.length) add(victim, 0, 2, "Busted lying");
+        else if (truth.length) add(victim, 100, 0, "Believed");
+        return { ...q, truth, lie, refused };
+      });
+      const asked = new Set((round.qs ?? []).map((q) => q.from));
+      const wrote = new Set(inputs.map((x) => x.player_id));
+      ids.filter((id) => id !== victim && !wrote.has(id)).forEach((id) => add(id, 0, 1, "Didn't ask a question"));
+      view.results = results;
+      view.asked = [...asked];
+      break;
+    }
+    case "wheel": {
+      const seg = WHEEL[round.spin?.index ?? 0];
+      const byScore = [...players].sort((a, b) => b.score - a.score);
+      const bySips = [...players].sort((a, b) => b.sips - a.sips);
+      if (seg.effect === "all") ids.forEach((id) => add(id, 0, seg.sips, "The wheel says so"));
+      if (seg.effect === "leader" && byScore[0]) byScore.filter((p) => p.score === byScore[0].score).forEach((p) => add(p.id, 0, seg.sips, "Leader tax"));
+      if (seg.effect === "victim" && round.spin?.victim) add(round.spin.victim, 0, seg.sips, "The wheel chose you");
+      if (seg.effect === "pity" && byScore.length) byScore.filter((p) => p.score === byScore[byScore.length - 1].score).forEach((p) => add(p.id, seg.points, 0, "Pity points"));
+      if (seg.effect === "others" && bySips[0]) ids.filter((id) => id !== bySips[0].id).forEach((id) => add(id, 0, seg.sips, "Everyone but the thirstiest"));
+      view.segment = seg;
       break;
     }
     case "cards": {

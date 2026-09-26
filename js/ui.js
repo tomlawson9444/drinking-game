@@ -14,7 +14,10 @@ export function toast(msg) {
 
 export function avatar(p, size = "") {
   if (!p) return "";
-  return `<span class="avatar ${size}" style="--c:${esc(p.color)}">${esc(p.name.slice(0, 1).toUpperCase())}</span>`;
+  const photo = safeImg(p.photo);
+  return photo
+    ? `<span class="avatar photo ${size}" style="--c:${esc(p.color)}"><img src="${photo}" alt=""></span>`
+    : `<span class="avatar ${size}" style="--c:${esc(p.color)}">${esc(p.name.slice(0, 1).toUpperCase())}</span>`;
 }
 
 export function chip(p, extra = "") {
@@ -42,7 +45,7 @@ export function tickTimers() {
 }
 setInterval(tickTimers, 250);
 
-// Only ever render drawings that are plain image data URLs.
+// Only ever render drawings / photos that are plain image data URLs.
 export const safeImg = (src) => (/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(src ?? "") ? src : "");
 
 // Tee K.O. shirt: a drawing on a T-shirt with a slogan underneath.

@@ -350,6 +350,76 @@ export const STI_CONTEXTS = [
   "a review of a hospital's A&E department",
 ];
 
+// ------------------------------------------------------------------ Rule Maker
+
+// House rules the Rule Maker can pick from (or they write their own). Last 3 rounds.
+export const RULES = [
+  "No saying anyone's name. Slip up = drink.",
+  "No swearing. Every swear is a sip.",
+  "Left hand only for drinking.",
+  "Everyone must say 'my liege' when addressing the Rule Maker.",
+  "No pointing. At anything.",
+  "Anyone who says 'drink' has to drink.",
+  "Every time the Landlord talks, the last person to shush drinks.",
+  "No phones except for the game. Checking anything else = drink.",
+  "You must stand up to answer. Forget = drink.",
+  "Everyone talks in a posh accent. Slip = sip.",
+  "No first names — only nicknames the group gives you.",
+  "Whenever someone laughs, the person to their right drinks.",
+  "No saying 'yes' or 'no'.",
+  "Thumb master: the Rule Maker can put their thumb on the table any time. Last to copy drinks.",
+  "Question master: anyone who answers the Rule Maker's question drinks.",
+  "You must toast someone before every sip.",
+  "Pinkies out while drinking. Always.",
+  "Anyone who touches their face drinks.",
+  "Say 'cheers big ears' before every drink.",
+  "No saying 'I', 'me' or 'my'.",
+];
+
+// ------------------------------------------------------------------ Wheel of Doom
+
+// Segments of the wheel. `effect` is applied by the host; {name} is a random player.
+export const WHEEL = [
+  { label: "Everyone drinks!", emoji: "🍻", effect: "all", sips: 1 },
+  { label: "Leader drinks 3", emoji: "👑", effect: "leader", sips: 3 },
+  { label: "Victim: {name} drinks 3", emoji: "🎯", effect: "victim", sips: 3 },
+  { label: "Double points next round", emoji: "✖️2", effect: "double" },
+  { label: "Waterfall!", emoji: "🌊", effect: "none", say: "Waterfall! Everyone starts drinking. You can't stop until the person on your right stops." },
+  { label: "Swap drinks with your left", emoji: "🔄", effect: "none", say: "Swap drinks with the person on your left. No complaining." },
+  { label: "Last place: +300 pity points", emoji: "🥺", effect: "pity", points: 300 },
+  { label: "Safe! Nobody drinks", emoji: "😇", effect: "none", say: "Safe. Nobody drinks. I'm as disappointed as you are." },
+  { label: "{name} hands out 4 sips", emoji: "🫵", effect: "none", say: "{name}, hand out four sips to whoever you like. Make enemies." },
+  { label: "Categories: first to hesitate drinks", emoji: "🧠", effect: "none", say: "Categories! The host picks a category, go round the room. First to hesitate drinks." },
+  { label: "Two sips each, finish on a cheers", emoji: "🥂", effect: "all", sips: 2 },
+  { label: "Thirstiest gets water, everyone else drinks", emoji: "🧊", effect: "others", sips: 1 },
+];
+
+// ------------------------------------------------------------------ Hot Seat
+
+// Suggestions shown on phones while writing a Hot Seat question.
+export const HOT_IDEAS = {
+  mild: [
+    "What's the most embarrassing thing on your phone?",
+    "Who here would you least like to be stuck on a desert island with?",
+    "What's the biggest lie you've told this group?",
+    "What's your most irrational fear?",
+    "Who's your celebrity crush?",
+    "What's the worst thing you've ever done at work?",
+    "What's something you've never told your parents?",
+    "Who in this room would you swap lives with?",
+  ],
+  filthy: [
+    "What's your body count? Honestly.",
+    "Who in this room would you get with?",
+    "What's the weirdest place you've had sex?",
+    "What's the worst sex you've ever had?",
+    "Have you ever faked it?",
+    "What's in your search history right now?",
+    "What's your biggest turn-off?",
+    "What's the dirtiest text you've ever sent?",
+  ],
+};
+
 // ------------------------------------------------------------------ host lines
 
 // What The Landlord says. {name}, {winner}, {liar}, {thirsty}, {last} and {other} are
@@ -434,6 +504,24 @@ export const LINES = {
     "{winner} takes the belt. Everyone they beat, drink. Especially you, {name}.",
     "And your champion is {winner}. {name}, that answer went down faster than your standards.",
   ],
+  hot: [
+    "{name} is a liar, and the group has proved it. Drink.",
+    "{name}, the jury says you're lying. The jury is also drunk, but still. Drink.",
+    "Busted, {name}. Your poker face needs work. Drink.",
+  ],
+  hot_clean: [
+    "{name} survived the hot seat. Either they're honest or they're a very good liar. Either way, I'm scared.",
+    "The group believes {name}. Nobody should ever believe {name}.",
+  ],
+  rule: [
+    "New house rule from {name}: {rule}",
+    "{name} has made a rule. God help us all. {rule}",
+  ],
+  snitch: [
+    "{by} says {name} broke the rule! {name}, drink.",
+    "Grass alert! {by} has grassed on {name}. Drink up, {name}.",
+    "{name}, you've been snitched on by {by}. Snitches get stitches, but you get a drink.",
+  ],
   cards: [
     "{winner} wins the round. {name}, the Czar hated yours. So did I. Drink.",
     "{czar} has spoken. {winner}, that was disgusting. Well done. {name}, drink.",
@@ -482,6 +570,8 @@ export const PARTY_GAMES = [
   { type: "sti", blurb: "Answer innocently, then someone reveals where it was 'really posted'." },
   { type: "brawl", blurb: "Everyone answers, then answers fight in a knockout bracket.", min: 3 },
   { type: "tee", blurb: "Draw and write slogans on your phone; T-shirts fight to the death.", min: 3 },
+  { type: "hot", blurb: "One mate in the hot seat; everyone asks a question, you vote truth or lie.", min: 3 },
+  { type: "wheel", blurb: "The TV spins the wheel: victims, double points, waterfalls, pity points…" },
   { type: "social", blurb: "A quick rule for the whole room — waterfalls, categories, thumb master." },
 ];
 
@@ -496,6 +586,9 @@ export const ROUND_INFO = {
   roles: { title: "Who's Who", emoji: "🎭", rules: "Sort your mates into the set. Agree with the group for points. Whoever gets the drinking role drinks 2." },
   brawl: { title: "Pub Brawl", emoji: "🥊", rules: "Write an answer, then they fight in a knockout bracket. Every answer knocked out drinks 1. Champion takes 500." },
   tee: { title: "Tee K.O.", emoji: "👕", rules: "Draw a picture and write a slogan. Then build a shirt from your mates' work — shirts fight to the death. Knocked-out shirts drink 1." },
+  rule: { title: "Rule Maker", emoji: "📜", rules: "The best player of the last round makes a house rule." },
+  hot: { title: "Hot Seat", emoji: "🔥", rules: "One player's in the hot seat. Everyone writes them a question, they answer out loud, you vote truth or lie. Liars drink 2; refusing drinks 3." },
+  wheel: { title: "Wheel of Doom", emoji: "🎡", rules: "The wheel decides your fate. Pray." },
   cards: { title: "Cards Against Sobriety", emoji: "🃏", rules: "Play your funniest card from your phone. The 👑 Card Czar picks a favourite (+100) and a least favourite (drinks 2)." },
   sti: { title: "Out of Context", emoji: "📱", rules: "Answer an innocent question. Then twist someone else's answer by saying where it was 'posted'. Most votes wins; zero votes drinks 2." },
   social: { title: "Social", emoji: "🍻", rules: "Everybody follow the rule on screen!" },
