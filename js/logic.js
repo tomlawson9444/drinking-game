@@ -2,8 +2,9 @@
 // No DOM or network here so it can be tested with plain Node.
 import { MILD, FILTHY, FIBS, YEARS, TRIVIA, ROLE_SETS, TEE_IDEAS, STI_QUESTIONS, STI_CONTEXTS, WHEEL, IMPOSTER_WORDS, DRAW_PROMPTS, HIGHER_LOWER, shuffle } from "./prompts.js";
 import { HAND_SIZE } from "./cards.js";
+import { POLLS, SPIKE_PAIRS, JOB_ICEBREAKERS, JOB_QUESTIONS, JOB_FILLERS, SORT_SETS, RAP_THEMES, RAP_OPENERS } from "./prompts-games.js";
 
-const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, hot: 1, wheel: 1, imposter: 1, drawful: 1, hol: 2, social: 1 };
+const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, hot: 1, wheel: 1, imposter: 1, drawful: 1, hol: 2, social: 1, poll: 2, spiked: 1, job: 1, sort: 1, rap: 1 };
 
 // A stable key for a prompt, used to remember what a group has already played.
 export const promptKey = (p) => (typeof p === "string" ? p : Array.isArray(p) ? p.join(" / ") : p.q ?? p.title ?? p.text ?? JSON.stringify(p));
@@ -19,7 +20,12 @@ export function buildPlan(rounds, types, opts = {}) {
       cards: [opts.cards?.black ?? []],
       imposter: [Object.entries(IMPOSTER_WORDS).flatMap(([cat, words]) => words.map((w) => ({ q: w, cat })))],
       drawful: opts.filthy ? [DRAW_PROMPTS.filthy, DRAW_PROMPTS.mild] : [DRAW_PROMPTS.mild],
-      hol: [HIGHER_LOWER] }[t] ??
+      hol: [HIGHER_LOWER],
+      poll: [POLLS],
+      sort: [SORT_SETS],
+      spiked: opts.filthy ? [SPIKE_PAIRS.filthy, SPIKE_PAIRS.mild] : [SPIKE_PAIRS.mild],
+      job: opts.filthy ? [JOB_QUESTIONS.filthy, JOB_QUESTIONS.mild] : [JOB_QUESTIONS.mild],
+      rap: opts.filthy ? [RAP_THEMES.filthy, RAP_THEMES.mild] : [RAP_THEMES.mild] }[t] ??
       (opts.filthy ? [FILTHY[t], MILD[t]] : [MILD[t]]);
     const fresh = packs.map((pack) => pack.filter((p) => !seen.has(promptKey(p))));
     const stale = packs.map((pack) => pack.filter((p) => seen.has(promptKey(p))));
@@ -63,6 +69,17 @@ export function buildPlan(rounds, types, opts = {}) {
       const qs = [draw("hol"), draw("hol"), draw("hol")].map((q, i) => ({ ...q, i }));
       plan.push({ type, prompt: "Higher or Lower", qs, keys: qs.map(promptKey) });
     }
+    else if (type === "poll") plan.push({ type, prompt: p.q, pct: p.pct, note: p.note ?? null });
+    else if (type === "spiked") plan.push({ type, prompt: p[0], alt: p[1] });
+    else if (type === "job") {
+      const ice = opts.filthy ? [...JOB_ICEBREAKERS.filthy, ...JOB_ICEBREAKERS.mild] : JOB_ICEBREAKERS.mild;
+      plan.push({ type, prompt: fill(p), ice: shuffle(ice) });
+    } else if (type === "sort") {
+      // Five items with different values, shown in a random order.
+      const picked = [];
+      for (const [name, v] of shuffle(p.items)) if (picked.length < 5 && !picked.some((x) => x.v === v)) picked.push({ name, v });
+      plan.push({ type, prompt: p.q, unit: p.unit, items: picked });
+    } else if (type === "rap") plan.push({ type, prompt: fill(p), openers: shuffle(RAP_OPENERS) });
     else if (type === "wyr") plan.push({ type, prompt: p.map(fill) });
     else plan.push({ type, prompt: fill(p) });
     if (key) plan[plan.length - 1].key = key;
@@ -86,6 +103,16 @@ export function expected(phase, round, players) {
     if (phase === "twist") return { kind: "twist", ids: others };
     if (phase === "vote") return { kind: "vote", ids: others };
   }
+  // Pub Poll: the pollster guesses, then everyone else calls higher or lower.
+  if (round.type === "poll") {
+    if (phase === "input") return { kind: "input", ids: players.filter((p) => p.id === round.pollster).map((p) => p.id) };
+    if (phase === "vote") return { kind: "vote", ids: players.filter((p) => p.id !== round.pollster).map((p) => p.id) };
+  }
+  // Pub Sort: each team's captain sorts.
+  if (phase === "input" && round.type === "sort") return { kind: "input", ids: players.filter((p) => round.captains?.includes(p.id)).map((p) => p.id) };
+  // Bullsh*t Interview: build an answer from the word tiles, then vote like Quip Clash.
+  if (phase === "twist" && round.type === "job") return { kind: "twist", ids: players.filter((p) => round.banks?.[p.id]).map((p) => p.id) };
+  if (phase === "vote" && round.type === "spiked") return { kind: "vote", ids: players.map((p) => p.id) };
   // Higher or Lower: everyone answers each question.
   if (phase === "hol" && round.q) return { kind: `m${round.q.i}`, ids: players.map((p) => p.id) };
   // Drinking buddy: only the round winner picks.
@@ -97,7 +124,7 @@ export function expected(phase, round, players) {
   // Rule Maker: only the maker picks.
   if (phase === "rule") return { kind: "rule", ids: players.filter((p) => p.id === round.maker).map((p) => p.id) };
   if (phase === "input") return { kind: "input", ids: players.map((p) => p.id) };
-  if (phase === "vote" && round.type === "quip") {
+  if (phase === "vote" && (round.type === "quip" || round.type === "job")) {
     // Everyone votes, except someone whose own answer is the only one they could pick.
     const answers = round.answers ?? [];
     return { kind: "vote", ids: players.filter((p) => answers.some((a) => a.pid !== p.id)).map((p) => p.id) };
@@ -239,6 +266,64 @@ export function stiPosts(subs, twists) {
       .map((s) => ({ pid: s.player_id, ...twists[s.player_id], text: String(s.value.text).trim().slice(0, 100) })),
   );
 }
+
+// ------------------------------------------------------------------ Spiked, Bullsh*t Interview, Pub Sort
+
+// Spiked: one saboteur, or two in a big group.
+export function spikedPick(players) {
+  return shuffle(players.map((p) => p.id)).slice(0, players.length >= 7 ? 2 : 1);
+}
+
+// Bullsh*t Interview: each player's word tiles are words from everyone else's icebreaker answers,
+// plus a few little words so the tiles can make sentences. Tiles are { w: word, pid: who wrote it }.
+const BANK_SIZE = 24;
+export function jobBanks(subs, players) {
+  const answers = subs.filter((s) => s.kind === "input" && String(s.value?.text ?? "").trim());
+  if (answers.length < 2) return null;
+  const words = answers.flatMap((s) =>
+    String(s.value.text).split(/\s+/)
+      .map((w) => w.replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, "").slice(0, 20))
+      .filter(Boolean)
+      .map((w) => ({ w, pid: s.player_id })));
+  return Object.fromEntries(players.map((p) => {
+    const bank = [];
+    const seen = new Set();
+    for (const x of shuffle(words.filter((x) => x.pid !== p.id))) {
+      const k = x.w.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      bank.push(x);
+      if (bank.length >= BANK_SIZE) break;
+    }
+    return [p.id, [...bank, ...JOB_FILLERS.filter((w) => !seen.has(w.toLowerCase())).map((w) => ({ w, pid: null }))]];
+  }));
+}
+
+export const JOB_MAX_WORDS = 15;
+// The built answers: { pid, text, from: [whose words were used] }.
+export function jobAnswers(subs, banks) {
+  return shuffle(
+    subs
+      .filter((s) => s.kind === "twist" && banks?.[s.player_id])
+      .map((s) => {
+        const bank = banks[s.player_id];
+        const picks = (Array.isArray(s.value?.idx) ? s.value.idx : []).slice(0, JOB_MAX_WORDS).map(Number).filter((i) => Number.isInteger(i) && bank[i]);
+        const text = picks.map((i) => bank[i].w).join(" ");
+        return { pid: s.player_id, text: text.charAt(0).toUpperCase() + text.slice(1), from: [...new Set(picks.map((i) => bank[i].pid).filter(Boolean))] };
+      })
+      .filter((a) => a.text),
+  );
+}
+
+// Pub Sort: two teams; a captain each, preferring people who haven't captained yet.
+export function sortTeams(players, seen = []) {
+  const ids = shuffle(players.map((p) => p.id));
+  const teams = [ids.filter((_, i) => i % 2 === 0), ids.filter((_, i) => i % 2 === 1)];
+  return { teams, captains: teams.map((t) => t.find((id) => !seen.includes(id)) ?? t[0]) };
+}
+
+// The right order (item indices, smallest value first).
+export const sortAnswer = (items) => items.map((_, i) => i).sort((a, b) => items[a].v - items[b].v);
 
 // ------------------------------------------------------------------ Cards Against Sobriety
 
@@ -575,6 +660,97 @@ export function scoreRound(round, players, subs) {
       view.options = Object.values(byKey).sort((a, b) => Number(b.truth) - Number(a.truth) || b.pickers.length - a.pickers.length);
       break;
     }
+    case "poll": {
+      const pollster = round.pollster;
+      const guess = round.guess ?? 50;
+      const miss = Math.abs(guess - round.pct);
+      if (!round.guessed) add(pollster, 0, 1, "Fell asleep at the poll");
+      else if (miss <= 3) add(pollster, 500, 0, "Nailed the poll");
+      else if (miss <= 10) add(pollster, 300, 0, "Close poll");
+      else if (miss <= 20) add(pollster, 100, 0, "Not bad");
+      else add(pollster, 0, 2, "Way off");
+      const truth = round.pct > guess ? "higher" : round.pct < guess ? "lower" : "exact";
+      const calls = { higher: [], lower: [] };
+      for (const v of votes) {
+        if (v.player_id === pollster || !(v.value?.pick in calls)) continue;
+        calls[v.value.pick].push(v.player_id);
+        if (truth === "exact" || v.value.pick === truth) add(v.player_id, 100, 0, "Called it");
+        else add(v.player_id, 0, 1, "Wrong call");
+      }
+      const called = new Set([...calls.higher, ...calls.lower]);
+      ids.filter((id) => id !== pollster && !called.has(id)).forEach((id) => add(id, 0, 1, "Too slow"));
+      Object.assign(view, { guess, miss, truth, calls });
+      break;
+    }
+    case "spiked": {
+      const spiked = round.spiked ?? [];
+      const tally = {};
+      for (const v of votes) if (ids.includes(v.value?.target) && v.value.target !== v.player_id) (tally[v.value.target] ??= []).push(v.player_id);
+      // The most-voted players are accused (as many as there are spikers; ties all go down).
+      const counts = Object.values(tally).map((t) => t.length).sort((a, b) => b - a);
+      const cut = counts[Math.min(spiked.length, counts.length) - 1] ?? 0;
+      const accused = Object.keys(tally).filter((t) => cut > 0 && tally[t].length >= cut);
+      const caught = spiked.filter((id) => accused.includes(id));
+      for (const id of spiked) {
+        if (caught.includes(id)) {
+          add(id, 0, 3, "Caught spiking");
+          (tally[id] ?? []).forEach((v) => add(v, 100, 0, "Spotted the spiker"));
+        } else add(id, 300, 0, "Got away with it");
+      }
+      accused.filter((id) => !spiked.includes(id)).forEach((id) => add(id, 0, 1, "Wrongly accused"));
+      if (!caught.length) ids.filter((id) => !spiked.includes(id)).forEach((id) => add(id, 0, 1, "Fooled by the spiker"));
+      slowpokes.forEach((id) => add(id, 0, 1, "No answer"));
+      view.answers = inputs.map((x) => ({ pid: x.player_id, text: String(x.value?.text ?? "").trim().slice(0, 60) }));
+      view.tally = tally;
+      view.caught = caught;
+      view.accused = accused;
+      break;
+    }
+    case "job": {
+      const answers = round.answers ?? [];
+      const got = Object.fromEntries(answers.map((a) => [a.pid, []]));
+      for (const v of votes) {
+        const target = v.value?.target;
+        if (target in got && target !== v.player_id) got[target].push(v.player_id);
+      }
+      const top = Math.max(0, ...Object.values(got).map((v) => v.length));
+      for (const a of answers) {
+        const n = got[a.pid].length;
+        if (n) add(a.pid, 100 * n, 0, `${n} vote${n === 1 ? "" : "s"}`);
+        else if (answers.length > 1) add(a.pid, 0, 2, "Zero votes");
+        // Whoever supplied the words for the winning answer gets a cut.
+        if (top > 0 && n === top) (a.from ?? []).filter((id) => id !== a.pid).forEach((id) => add(id, 50, 0, "Your words got hired"));
+      }
+      const answered = new Set(answers.map((a) => a.pid));
+      Object.keys(round.banks ?? {}).filter((id) => !answered.has(id)).forEach((id) => add(id, 0, 2, "No answer"));
+      slowpokes.forEach((id) => add(id, 0, 1, "No icebreaker"));
+      const voted = new Set(votes.map((v) => v.player_id));
+      ids.filter((id) => answers.some((a) => a.pid !== id) && answers.length > 1 && !voted.has(id)).forEach((id) => add(id, 0, 1, "Didn't vote"));
+      view.results = answers
+        .map((a) => ({ ...a, voters: got[a.pid], winner: top > 0 && got[a.pid].length === top }))
+        .sort((x, y) => y.voters.length - x.voters.length);
+      break;
+    }
+    case "sort": {
+      const items = round.items ?? [];
+      const correct = sortAnswer(items);
+      const teams = round.teams ?? [[], []];
+      const res = teams.map((team, t) => {
+        const order = byPlayer[round.captains?.[t]]?.order;
+        const valid = Array.isArray(order) && order.length === items.length && new Set(order).size === items.length && order.every((i) => Number.isInteger(i) && items[i]);
+        return { order: valid ? order : null, right: valid ? order.filter((i, pos) => correct[pos] === i).length : 0 };
+      });
+      const winner = res[0].right === res[1].right ? null : res[0].right > res[1].right ? 0 : 1;
+      teams.forEach((team, t) => team.forEach((id) => {
+        if (res[t].right) add(id, 50 * res[t].right, 0, `${res[t].right} in the right place`);
+        if (winner === t) add(id, 200, 0, "Team win");
+        else if (winner === null) add(id, 0, 1, "Dead heat");
+        else add(id, 0, 2, "Losing team");
+      }));
+      teams.forEach((_, t) => !res[t].order && add(round.captains?.[t], 0, 1, "Captain froze"));
+      Object.assign(view, { correct, res, winner });
+      break;
+    }
     case "hol": {
       view.results = (round.qs ?? []).map((q) => {
         const vs = subs.filter((x) => x.kind === `m${q.i}` && ids.includes(x.player_id));
@@ -635,6 +811,7 @@ export function scoreRound(round, players, subs) {
       break;
     }
     case "brawl":
+    case "rap":
     case "tee": {
       const history = round.br?.history ?? [];
       const tee = round.type === "tee";

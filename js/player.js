@@ -1,7 +1,7 @@
 // The phone controller: join a room, answer, vote, find out if you drink.
 import { api, watchRoom, store } from "./api.js";
 import { ROUND_INFO } from "./prompts.js";
-import { norm, fillCard, isBlank } from "./logic.js";
+import { norm, fillCard, isBlank, JOB_MAX_WORDS } from "./logic.js";
 import { HOT_IDEAS } from "./prompts.js";
 import { createGM } from "./gm.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf, safeImg } from "./ui.js";
@@ -20,7 +20,7 @@ export function startPlayer(app, me, onLeave) {
   // Per-round scratch state for multi-step answers (Who's Who picks, Tee K.O. drawing / shirt).
   let scratch = { round: null };
   const fresh = (round) => {
-    if (scratch.round !== round) scratch = { round, picks: [], img: null, pen: PENS[0], size: 6, slogan: "", make: {}, cards: [], win: null, blanks: {} };
+    if (scratch.round !== round) scratch = { round, picks: [], img: null, pen: PENS[0], size: 6, slogan: "", make: {}, cards: [], win: null, blanks: {}, words: [], sort: [] };
     return scratch;
   };
 
@@ -63,6 +63,26 @@ export function startPlayer(app, me, onLeave) {
     if (act === "rule-pick") return send("rule", { text: live.room.state.cur.options[+val] });
     if (act === "hol") return send(`m${live.room.state.cur.q.i}`, { pick: val });
     if (act === "buddy-pick") return send("buddy", { target: val });
+    if (act === "poll-hl") return send("vote", { pick: val });
+    if (act === "sort-pick" || act === "sort-undo") {
+      const sc = fresh(live.room.round);
+      if (act === "sort-undo") sc.sort.pop();
+      else if (!sc.sort.includes(+val)) sc.sort.push(+val);
+      if (sc.sort.length === live.room.state.cur.items.length) return send("input", { order: sc.sort });
+      return render();
+    }
+    if (act === "job-word" || act === "job-undo") {
+      const sc = fresh(live.room.round);
+      if (act === "job-undo") sc.words.pop();
+      else if (sc.words.length < JOB_MAX_WORDS) sc.words.push(+val);
+      else toast(`That's ${JOB_MAX_WORDS} words — keep it snappy!`);
+      return render();
+    }
+    if (act === "job-send") {
+      const words = fresh(live.room.round).words;
+      if (!words.length) return toast("Tap some words first! 💼");
+      return send("twist", { idx: words });
+    }
     if (act === "snitch") {
       scratch.snitching = !scratch.snitching;
       render();
@@ -142,6 +162,10 @@ export function startPlayer(app, me, onLeave) {
       if (!sc.img) return toast("Draw something first! 🎨");
       return send("input", { img: sc.img });
     }
+    if (e.target.id === "poll-form") {
+      e.preventDefault();
+      return send("input", { pct: +$("#poll-val").value });
+    }
     if (e.target.id === "rule-form") {
       e.preventDefault();
       const text = $("#rule-text").value.trim();
@@ -176,6 +200,7 @@ export function startPlayer(app, me, onLeave) {
     if (e.target.id === "quip-text") draft = e.target.value;
     if (e.target.dataset.blank) fresh(live.room.round).blanks[e.target.dataset.blank] = e.target.value;
     if (e.target.id === "tee-slogan") fresh(live.room.round).slogan = e.target.value;
+    if (e.target.id === "poll-val") $("#poll-show").textContent = `${e.target.value}%`;
   });
 
   // House rules in force, with a snitch button.
@@ -372,6 +397,59 @@ export function startPlayer(app, me, onLeave) {
             <button class="btn big" data-act="card-play" ${preview ? "" : "disabled"}>Play ${cur.pick === 1 ? "it" : "them"} 🃏</button>`;
           break;
         }
+        const nameOf = (id) => esc(live.players.find((p) => p.id === id)?.name ?? "Someone");
+        if (cur.type === "poll") {
+          if (cur.pollster !== playerId) body = timer + `<div class="locked pop"><div class="big-emoji">📊</div><h2>${nameOf(cur.pollster)} is taking the poll…</h2><p class="muted">${esc(cur.prompt)}</p><p class="muted">Get ready to call higher or lower.</p></div>`;
+          else
+            body = `${timer}<h2 class="center-text">📊 You're the pollster!</h2><p class="prompt-sm">${esc(cur.prompt)}</p>
+              <form id="poll-form" class="quip-form"><div id="poll-show" class="poll-show">50%</div>
+              <input id="poll-val" class="poll-slider" type="range" min="0" max="100" step="1" value="50">
+              <button class="btn big" type="submit">That's my guess 📊</button></form>`;
+          break;
+        }
+        if (cur.type === "sort") {
+          const t = cur.teams?.findIndex((team) => team.includes(playerId)) ?? -1;
+          const team = ["🔴 Red", "🔵 Blue"][t] ?? "";
+          if (cur.captains?.[t] !== playerId) {
+            body = `${timer}<h2 class="center-text">${team} team</h2><p class="prompt-sm">${esc(cur.prompt)}</p>
+              <div class="choices">${cur.items.map((it) => `<div class="choice static">${esc(it.name)}</div>`).join("")}</div>
+              <p class="center-text">👑 <b>${nameOf(cur.captains?.[t])}</b> is sorting for your team. Shout at them!</p>`;
+            break;
+          }
+          const sc = fresh(room.round);
+          body = `${timer}<h2 class="center-text">👑 ${team} captain</h2><p class="prompt-sm">${esc(cur.prompt)}</p>
+            <p class="muted center-text">Tap them in order — ${sc.sort.length + 1} of ${cur.items.length}</p>
+            ${sc.sort.length ? `<ol class="sort-picked">${sc.sort.map((i) => `<li>${esc(cur.items[i].name)}</li>`).join("")}</ol>` : ""}
+            <div class="choices">${cur.items.map((it, i) => (sc.sort.includes(i) ? "" : `<button class="choice" data-act="sort-pick" data-val="${i}">${esc(it.name)}</button>`)).join("")}</div>
+            ${sc.sort.length ? `<button class="btn ghost sm" data-act="sort-undo">↩ Undo</button>` : ""}`;
+          break;
+        }
+        if (cur.type === "spiked") {
+          const me = cur.spiked?.includes(playerId);
+          body = `${timer}${me
+            ? `<div class="secret imposter pop"><div class="big-emoji">🧪</div><h2>You've been SPIKED!</h2><p>Everyone else has a different question. Blend in.</p></div>`
+            : `<p class="muted center-text">Someone has a different question. Don't be too obvious… or too vague.</p>`}
+            <p class="prompt-sm">${esc(me ? cur.alt : cur.prompt)}</p>
+            <form id="quip-form" class="quip-form"><input id="quip-text" class="slogan-input" maxlength="60" placeholder="Your answer" autocomplete="off" value="${esc(draft)}">
+            <button class="btn big" type="submit">Send it</button></form>`;
+          break;
+        }
+        if (cur.type === "job") {
+          body = `${timer}<p class="muted center-text">💼 Icebreaker — answer in full sentences. Your words will be used against you.</p>
+            <p class="prompt-sm">${esc(cur.ask?.[playerId] ?? cur.ice?.[0])}</p>
+            <form id="quip-form" class="quip-form"><textarea id="quip-text" maxlength="150" rows="4" placeholder="Go on, tell us everything…">${esc(draft)}</textarea>
+            <button class="btn big" type="submit">Send it 💼</button></form>`;
+          break;
+        }
+        if (cur.type === "rap") {
+          const o = cur.ask?.[playerId] ?? cur.openers?.[0];
+          body = `${timer}<p class="muted center-text">🎤 Theme: <b>${esc(cur.prompt)}</b></p>
+            <div class="rap-open"><span>${esc(o.line)}…</span></div>
+            <p class="center-text">Finish the verse. Rhyme with <b class="rhyme">${esc(o.rhyme.toUpperCase())}</b></p>
+            <form id="quip-form" class="quip-form"><textarea id="quip-text" maxlength="80" rows="2" placeholder="Your killer line…">${esc(draft)}</textarea>
+            <button class="btn big" type="submit">Drop it 🎤</button></form>`;
+          break;
+        }
         if (cur.type === "likely") {
           body = `${timer}<p class="prompt-sm">${esc(cur.prompt)}</p>
             <div class="choices">${live.players.map((p) => `<button class="choice" data-act="pick" data-val="${p.id}" style="--c:${esc(p.color)}">${avatar(p)}${esc(p.name)}${p.id === playerId ? " (you)" : ""}</button>`).join("")}</div>`;
@@ -486,6 +564,21 @@ export function startPlayer(app, me, onLeave) {
           }
           break;
         }
+        if (cur.type === "job") {
+          const bank = cur.banks?.[playerId];
+          const sc = fresh(room.round);
+          if (mySub("twist")) body = timer + lockedIn("Application sent! 💼");
+          else if (!bank) body = timer + lockedIn("Sit tight…");
+          else {
+            const text = sc.words.map((i) => bank[i].w).join(" ");
+            body = `${timer}<p class="muted center-text">The panel asks:</p><p class="prompt-sm">${esc(cur.prompt)}</p>
+              <div class="job-answer">${text ? `“${esc(text.charAt(0).toUpperCase() + text.slice(1))}”` : `<span class="muted">Tap words to build your answer…</span>`}</div>
+              <div class="tiles">${bank.map((x, i) => `<button class="tile ${x.pid ? "" : "filler"}" data-act="job-word" data-val="${i}">${esc(x.w)}</button>`).join("")}</div>
+              <div class="row"><button class="btn ghost sm" data-act="job-undo" ${sc.words.length ? "" : "disabled"}>↩ Undo</button>
+              <button class="btn big" data-act="job-send" ${sc.words.length ? "" : "disabled"}>Submit answer 💼</button></div>`;
+          }
+          break;
+        }
         const t = cur.twists?.[playerId];
         if (mySub("twist")) body = timer + lockedIn("Twisted! 😈");
         else if (!t) body = timer + lockedIn("Sit tight…");
@@ -501,7 +594,8 @@ export function startPlayer(app, me, onLeave) {
         const timer = timerBar(st.deadline, st.span ?? 15);
         const m = cur.match;
         const kind = `m${m.m}`;
-        const side = (e) => (cur.type === "tee" ? shirt(drawingOf(live.subs, e.img), e.text) : esc(e.text));
+        const side = (e) => (cur.type === "tee" ? shirt(drawingOf(live.subs, e.img), e.text)
+          : cur.type === "rap" ? `<span class="muted">${esc(e.opener?.line ?? "")}…</span><br>${esc(e.text)}` : esc(e.text));
         if (mySub(kind)) body = timer + lockedIn("Vote cast! 🥊");
         else if (m.a.pid === playerId || m.b.pid === playerId) body = timer + lockedIn("You're in this fight! Watch the screen 🥊");
         else
@@ -551,10 +645,21 @@ export function startPlayer(app, me, onLeave) {
               <button class="btn big" data-act="make-done">Print it 👕</button>`;
           break;
         }
-        if (cur.type === "imposter") {
+        if (cur.type === "poll") {
+          const pollster = live.players.find((p) => p.id === cur.pollster);
+          if (cur.pollster === playerId) body = timer + `<div class="locked pop"><div class="big-emoji">📊</div><h2>You said ${cur.guess}%</h2><p class="muted">Everyone's deciding if you're too high or too low…</p></div>`;
+          else if (mySub("vote")) body = timer + lockedIn("Called it! 📊");
+          else
+            body = `${timer}<p class="prompt-sm">${esc(cur.prompt)}</p><p class="center-text">${esc(pollster?.name ?? "The pollster")} says <b>${cur.guess}%</b>. The real answer is…</p>
+              <div class="choices two"><button class="choice cool" data-act="poll-hl" data-val="higher">⬆️ Higher</button>
+              <button class="choice hot" data-act="poll-hl" data-val="lower">⬇️ Lower</button></div>`;
+          break;
+        }
+        if (cur.type === "imposter" || cur.type === "spiked") {
+          const spiked = cur.type === "spiked";
           if (mySub("vote")) body = timer + lockedIn("Accusation made! 🕵️");
           else
-            body = `${timer}<p class="prompt-sm">Who's the imposter? 🕵️</p><p class="muted center-text">Check the clues on the TV.</p>
+            body = `${timer}<p class="prompt-sm">${spiked ? "Who's been spiked? 🧪" : "Who's the imposter? 🕵️"}</p><p class="muted center-text">${spiked ? "Check the answers on the TV." : "Check the clues on the TV."}</p>
               <div class="choices">${live.players.filter((p) => p.id !== playerId).map((p) => `<button class="choice" data-act="vote" data-val="${p.id}" style="--c:${esc(p.color)}">${avatar(p)}${esc(p.name)}</button>`).join("")}</div>`;
           break;
         }

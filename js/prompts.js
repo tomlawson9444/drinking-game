@@ -634,6 +634,42 @@ export const LINES = {
     "{name}, not one vote for that twist. The internet has no mercy, and neither do I. Drink.",
     "Congratulations {winner}. {victim} will never answer an honest question again.",
   ],
+  poll: [
+    "{name} guessed {guess} percent. It was {answer}. {name}, never work in polling. Drink.",
+    "{answer}, not {guess}. {name}, that wasn't a guess, that was a cry for help. Drink.",
+    "{name} said {guess} percent. The real answer was {answer}. The nation is disappointed in you.",
+  ],
+  poll_close: [
+    "{name} said {guess} percent, and it was {answer}. Annoyingly good. Somebody check their phone.",
+    "{guess} percent. Real answer, {answer}. {name}, you've clearly been doing surveys on the toilet.",
+  ],
+  spiked_caught: [
+    "{name} was spiked, and you caught them. {name}, drink three. Your poker face is a disgrace.",
+    "Busted. {name} had the wrong question all along, and it showed. Drink up, {name}.",
+    "{name}, you blended in like a fox in a henhouse. Three sips.",
+  ],
+  spiked_escaped: [
+    "{name} was spiked the whole time, and none of you noticed. Everyone else, drink. You're all idiots.",
+    "Well done, detectives. {name} walked right past you. Drink, the lot of you.",
+  ],
+  job: [
+    "{winner} gets the job. Nobody knows what the job is. {name}, you're not even getting a call back. Drink.",
+    "Congratulations {winner}, you're hired. {name}, security will escort you out. Drink on the way.",
+    "{winner}, that answer made no sense and I'd still hire you over {name}. {name}, drink.",
+  ],
+  sort: [
+    "{team} team wins. {name}, you were the captain of the losers. Everybody on your team, drink.",
+    "{team} team takes it. The other lot, drink two. {name}, maybe let someone else hold the phone next time.",
+  ],
+  sort_tie: [
+    "A dead heat. Everybody drinks. Nobody learned anything.",
+    "Level. Both teams are equally bad at this. Drink.",
+  ],
+  rap: [
+    "{winner} is the rap battle champion. {name}, that verse was a hate crime against rhyming. Drink.",
+    "{winner} wins. Stormzy is shaking. {name}, you were knocked out first. Drink.",
+    "And the crowd goes mild. {winner} takes the crown. {name}, go home and think about what you've done.",
+  ],
   final: [
     "That's the game. {winner} wins. Enjoy it, {winner}, it's the most anyone's ever rated you. {thirsty} drank the most, and {last} came last, which feels about right.",
     "Your winner is {winner}. Take a bow. Not too low, you'll fall over. {thirsty}, you drank the most. Have some water. And maybe a word with yourself.",
@@ -675,6 +711,11 @@ export const PARTY_GAMES = [
   { type: "hol", blurb: "Three rapid-fire higher-or-lower questions. Wrong answers drink." },
   { type: "hot", blurb: "One mate in the hot seat; everyone asks a question, you vote truth or lie.", min: 3 },
   { type: "wheel", blurb: "The TV spins the wheel: victims, double points, waterfalls, pity points…" },
+  { type: "poll", blurb: "One mate guesses what % of people do something; everyone else calls higher or lower." },
+  { type: "spiked", blurb: "Someone's been spiked with a different question. Read the answers and vote them out.", min: 4 },
+  { type: "job", blurb: "Answer icebreakers, then build job-interview answers out of your mates' words.", min: 3 },
+  { type: "sort", blurb: "Two teams. Each captain puts five things in order while their team shouts at them.", min: 4 },
+  { type: "rap", blurb: "Finish a rap verse. The Landlord raps them out loud, the room picks the winner.", min: 3 },
   { type: "social", blurb: "A quick rule for the whole room — waterfalls, categories, thumb master." },
 ];
 
@@ -698,6 +739,11 @@ export const ROUND_INFO = {
   wheel: { title: "Wheel of Doom", emoji: "🎡", rules: "The wheel decides your fate. Pray." },
   cards: { title: "Cards Against Sobriety", emoji: "🃏", rules: "Play your funniest card from your phone. The 👑 Card Czar picks a favourite (+100) and a least favourite (drinks 2)." },
   sti: { title: "Out of Context", emoji: "📱", rules: "Answer an innocent question. Then twist someone else's answer by saying where it was 'posted'. Most votes wins; zero votes drinks 2." },
+  poll: { title: "Pub Poll", emoji: "📊", rules: "The pollster guesses the percentage. Everyone else: higher or lower? Wrong calls drink 1; a pollster who's way off drinks 2." },
+  spiked: { title: "Spiked", emoji: "🧪", rules: "Everyone answers a question, but someone's been spiked with a different one. Vote them out. Caught: they drink 3. Escaped: everyone else drinks." },
+  job: { title: "Bullsh*t Interview", emoji: "💼", rules: "Answer the icebreaker in full sentences. Then build your job interview answer out of everyone else's words. Most votes gets the job; zero votes drinks 2." },
+  sort: { title: "Pub Sort", emoji: "🔢", rules: "Two teams. Each captain puts the items in order on their phone while the team shouts. The losing team drinks 2." },
+  rap: { title: "Rap Battle", emoji: "🎤", rules: "Finish your verse with a rhyme. The Landlord raps each battle; vote for the best. Knocked out? Drink 1. Champion takes 500." },
   social: { title: "Social", emoji: "🍻", rules: "Everybody follow the rule on screen!" },
 };
 

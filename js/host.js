@@ -3,7 +3,7 @@
 import { api, watchRoom, newToken, store } from "./api.js";
 import { ROUND_INFO, PARTY_GAMES, RULES, WHEEL, shuffle } from "./prompts.js";
 import { buildPlan, allIn, expected, quipAnswers, fibOptions, scoreRound, brawlInit, brawlNext, brawlRecord, teeOffers, teeShirts, stiTwists, stiPosts, whitePile, dealHands, cardPlays, discardPlays, fillCard,
-  isBlank, wheelSpin, hotVictim, hotQuestions, applyBuddies, buddyRounds } from "./logic.js";
+  isBlank, wheelSpin, hotVictim, hotQuestions, applyBuddies, buddyRounds, spikedPick, jobBanks, jobAnswers, sortTeams, sortAnswer } from "./logic.js";
 import { createGM } from "./gm.js";
 import { loadCards, cardDeck, CARDS_CREDIT } from "./cards.js";
 import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf, safeImg } from "./ui.js";
@@ -21,13 +21,18 @@ const RULE_EVERY = 3; // a Rule Maker every few rounds
 const RULE_ROUNDS = 3; // how long a house rule lasts
 const HOL_S = 12; // each Higher or Lower question
 const BUDDY_S = 30; // the buddy-round winner's time to choose
+const RAP_MATCH_S = 40; // each rap battle (the Landlord raps both verses first)
+const SORT_S = 60; // minimum time for the Pub Sort captains
+const JOB_S = 75; // minimum time to build an interview answer
 const ROUND_LENGTHS = [[6, "Quick"], [10, "Standard"], [20, "Session"], [40, "All night"]];
-const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted|Czar's favourite|Believed|Pity points|Spotted|Undercover|Good drawing|^Right$/;
+const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted|Czar's favourite|Believed|Pity points|Spotted|Undercover|Good drawing|^Right$|Nailed|Close poll|Not bad|Called it|Got away|hired|right place|Team win/;
 
 const DEFAULT_SETTINGS = {
   mode: "party", rounds: 10, target: 7, timer: 45, filthy: true, voice: true, tvVoice: true, rules: true, buddies: true,
   games: PARTY_GAMES.map((g) => g.type), // Party Mix games picked on the game-picker screen
 };
+// Games that existed before `known` was saved: anything newer starts switched on.
+const OLD_GAMES = ["quip", "likely", "wyr", "nhie", "fib", "year", "trivia", "roles", "sti", "brawl", "tee", "imposter", "drawful", "hol", "hot", "wheel", "social"];
 const MAX_CARD_ROUNDS = 150; // Cards Against Sobriety ends when someone collects `target` black cards
 // Cards Against Sobriety needs a Czar plus at least two players.
 const minPlayers = (mode) => (mode === "cards" ? 3 : 2);
@@ -48,6 +53,10 @@ export async function startHost(app) {
   let watcher = null;
   const scored = new Set(); // rounds whose points/sips were already applied
   const settings = { ...DEFAULT_SETTINGS, ...store.get("dg-settings") };
+  // New games added since this screen last saved its picks are switched on.
+  const known = settings.known ?? OLD_GAMES;
+  settings.games = [...settings.games, ...PARTY_GAMES.map((g) => g.type).filter((t) => !known.includes(t) && !settings.games.includes(t))];
+  settings.known = PARTY_GAMES.map((g) => g.type);
 
   const caption = $("#gm");
   let captionTimer = null;
@@ -174,13 +183,24 @@ export async function startHost(app) {
         } else if (cur.type === "hol") {
           await set("hol", room.round, { ...st, cur: { ...cur, q: cur.qs[0] }, deadline: now + HOL_S * 1000, span: HOL_S });
         }
-        else if (cur.type === "hot") {
+        else if (cur.type === "poll") {
+          const pollster = hotVictim(live.players, st.pollSeen);
+          await set("input", room.round, { ...st, pollSeen: [...(st.pollSeen ?? []), pollster], cur: { ...cur, pollster }, deadline: now + timer, span: timer / 1000 });
+        } else if (cur.type === "sort") {
+          const { teams, captains } = sortTeams(live.players, st.sortSeen);
+          const secs = Math.max(SORT_S, timer / 1000);
+          await set("input", room.round, { ...st, sortSeen: [...(st.sortSeen ?? []), ...captains], cur: { ...cur, teams, captains }, deadline: now + secs * 1000, span: secs });
+        } else if (cur.type === "spiked") {
+          await set("input", room.round, { ...st, cur: { ...cur, spiked: spikedPick(live.players) }, deadline: now + timer, span: timer / 1000 });
+        } else if (cur.type === "hot") {
           const victim = hotVictim(live.players, st.hotSeen);
           await set("input", room.round, { ...st, hotSeen: [...(st.hotSeen ?? []), victim], cur: { ...cur, victim }, deadline: now + timer, span: timer / 1000 });
         } else {
           const secs = cur.type === "tee" ? Math.max(DRAW_S, timer / 1000) : timer / 1000;
           // Out of Context: everyone gets their own innocent question.
-          const extra = cur.type === "sti" ? { ask: Object.fromEntries(live.players.map((p, i) => [p.id, cur.questions[i % cur.questions.length]])) } : {};
+          // (Bullsh*t Interview hands out icebreakers, and Rap Battle opening lines, the same way.)
+          const deal = { sti: cur.questions, job: cur.ice, rap: cur.openers }[cur.type];
+          const extra = deal ? { ask: Object.fromEntries(live.players.map((p, i) => [p.id, deal[i % deal.length]])) } : {};
           await set("input", room.round, { ...st, cur: { ...cur, ...extra }, deadline: now + secs * 1000, span: secs });
         }
       } else if (room.phase === "input" && (now >= st.deadline || allIn("input", cur, live.players, live.subs))) {
@@ -197,8 +217,23 @@ export async function startHost(app) {
           const czarHere = live.players.some((p) => p.id === cur.czar);
           if (plays.length && czarHere) await set("vote", room.round, { ...st, cur: { ...cur, plays }, deadline: now + voteTime, span: voteTime / 1000 });
           else await reveal(room, st, { ...cur, plays });
-        } else if (cur.type === "imposter") {
+        } else if (cur.type === "imposter" || cur.type === "spiked") {
           await set("vote", room.round, { ...st, deadline: now + voteTime, span: voteTime / 1000 });
+        } else if (cur.type === "poll") {
+          // No guess in time? The pollster gets 50% and a sip.
+          const pct = Number(live.subs.find((x) => x.kind === "input" && x.player_id === cur.pollster)?.value?.pct);
+          const guessed = Number.isFinite(pct);
+          const guess = guessed ? Math.max(0, Math.min(100, Math.round(pct))) : 50;
+          await set("vote", room.round, { ...st, cur: { ...cur, guess, guessed }, deadline: now + voteTime, span: voteTime / 1000 });
+        } else if (cur.type === "sort") {
+          await reveal(room, st, cur);
+        } else if (cur.type === "job") {
+          const banks = jobBanks(live.subs, live.players);
+          const secs = Math.max(JOB_S, timer / 1000);
+          if (banks) await set("twist", room.round, { ...st, cur: { ...cur, banks }, deadline: now + secs * 1000, span: secs });
+          else await reveal(room, st, { ...cur, answers: [] });
+        } else if (cur.type === "rap") {
+          await startBracket(room, st, { ...cur, entries: quipAnswers(live.subs).map((a) => ({ ...a, opener: cur.ask?.[a.pid] })) });
         } else if (cur.type === "drawful") {
           const hasDrawing = live.subs.some((x) => x.kind === "input" && x.player_id === cur.drawer && x.value?.img);
           if (hasDrawing) await set("twist", room.round, { ...st, cur: { ...cur, hasDrawing }, deadline: now + timer, span: timer / 1000 });
@@ -232,6 +267,10 @@ export async function startHost(app) {
       } else if (room.phase === "vote" && (now >= st.deadline || allIn("vote", cur, live.players, live.subs))) {
         if (cur.type === "tee") await startBracket(room, st, { ...cur, entries: teeShirts(live.subs, cur.offers) });
         else await reveal(room, st, cur);
+      } else if (room.phase === "twist" && cur.type === "job" && (now >= st.deadline || allIn("twist", cur, live.players, live.subs))) {
+        const answers = jobAnswers(live.subs, cur.banks);
+        if (answers.length >= 2) await set("vote", room.round, { ...st, cur: { ...cur, answers }, deadline: now + voteTime, span: voteTime / 1000 });
+        else await reveal(room, st, { ...cur, answers });
       } else if (room.phase === "twist" && cur.type === "drawful" && (now >= st.deadline || allIn("twist", cur, live.players, live.subs))) {
         const options = fibOptions(live.subs, cur.prompt, "twist");
         if (options.length >= 2) await set("vote", room.round, { ...st, cur: { ...cur, options }, deadline: now + voteTime, span: voteTime / 1000 });
@@ -253,7 +292,7 @@ export async function startHost(app) {
         else await reveal(room, st, cur);
       } else if (room.phase === "rule" && (now >= st.deadline || allIn("rule", cur, live.players, live.subs))) {
         await finishRule(room, st);
-      } else if (room.phase === "match" && (now >= st.deadline || allIn("match", cur, live.players, live.subs))) {
+      } else if (room.phase === "match" && (now >= st.deadline || (allIn("match", cur, live.players, live.subs) && (cur.type !== "rap" || !gm.busy())))) {
         await nextMatch(room, st, { ...cur, br: brawlRecord(cur.br, cur.match, live.subs) });
       } else if (room.phase === "reveal" && ready(st.until, now)) {
         await set("scores", room.round, { ...st, until: now + SCORES_MS });
@@ -277,7 +316,8 @@ export async function startHost(app) {
   async function nextMatch(room, st, cur) {
     const n = brawlNext(cur.br);
     if (n.match) {
-      await set("match", room.round, { ...st, cur: { ...cur, br: n.br, match: n.match }, deadline: Date.now() + MATCH_S * 1000, span: MATCH_S });
+      const secs = cur.type === "rap" ? RAP_MATCH_S : MATCH_S;
+      await set("match", room.round, { ...st, cur: { ...cur, br: n.br, match: n.match }, deadline: Date.now() + secs * 1000, span: secs });
     } else {
       await reveal(room, st, { ...cur, br: n.br, match: null, champion: n.champion });
     }
@@ -303,7 +343,7 @@ export async function startHost(app) {
   const carry = (st) => ({
     plan: st.plan, settings: st.settings, idx: st.idx, hands: st.hands, won: st.won,
     rules: st.rules, double: st.double, hotSeen: st.hotSeen, ruleDone: st.ruleDone,
-    buddies: st.buddies, buddyDone: st.buddyDone, drawSeen: st.drawSeen,
+    buddies: st.buddies, buddyDone: st.buddyDone, drawSeen: st.drawSeen, pollSeen: st.pollSeen, sortSeen: st.sortSeen,
   });
 
   async function next(room, st) {
@@ -374,6 +414,11 @@ export async function startHost(app) {
         else if (cur.type === "imposter") gm.say("Check your phones. One of you is the imposter. Give me a one-word clue.", { caption: false });
         else if (cur.type === "drawful") gm.say(`${nameOf(cur.drawer) ?? "Someone"} is drawing. Everyone else, look away from their phone.`, { caption: false });
         else if (cur.type === "hot") gm.say(`${nameOf(cur.victim) ?? "Someone"} is in the hot seat. Everyone else, write them a question.`, { caption: false });
+        else if (cur.type === "poll") gm.say(`${nameOf(cur.pollster) ?? "Someone"} is taking the poll. ${cur.prompt}`, { caption: false });
+        else if (cur.type === "spiked") gm.say("Check your phones and answer the question. One of you has been spiked, with a different question. Blend in.", { caption: false });
+        else if (cur.type === "sort") gm.say(`Team captains: ${nameOf(cur.captains?.[0]) ?? "red"} and ${nameOf(cur.captains?.[1]) ?? "blue"}. ${cur.prompt}`, { caption: false });
+        else if (cur.type === "job") gm.say("Welcome to your job interview. First, a little icebreaker. Answer in full sentences. Your words will be used against you.", { caption: false });
+        else if (cur.type === "rap") gm.say(`Rap battle! Tonight's theme: ${cur.prompt}. Finish your verse on your phone. And make it rhyme.`, { caption: false });
         else gm.say(cur.prompt, { caption: false });
         break;
       case "vote": {
@@ -385,12 +430,19 @@ export async function startHost(app) {
           imposter: "Right. Who's the imposter?",
           drawful: "Which one's the real title?",
           cards: "Card Czar. Pick your favourite. And the one you hate.",
+          spiked: "Right. Read the answers. Who's been spiked?",
+          job: "Who gets the job? Vote now.",
+          poll: `${nameOf(cur.pollster) ?? "The pollster"} says ${cur.guess} percent. Higher, or lower?`,
         };
         gm.say(lines[cur.type] ?? "Right. Vote for the least disappointing one.", { caption: false });
         break;
       }
       case "match":
-        gm.say(`${cur.match?.label ?? "Next match"}. Fight!`, { caption: false });
+        if (cur.type === "rap" && cur.match) {
+          // The Landlord raps both verses (deadpan), then the room votes.
+          const verse = (e) => `${e.opener?.line ?? ""}. ${e.text}.`;
+          gm.say(`${cur.match.label}. In the red corner, ${nameOf(cur.match.a.pid) ?? "someone"}. ${verse(cur.match.a)} And in the blue corner, ${nameOf(cur.match.b.pid) ?? "someone"}. ${verse(cur.match.b)} Vote!`, { caption: false });
+        } else gm.say(`${cur.match?.label ?? "Next match"}. Fight!`, { caption: false });
         break;
       case "hotq":
         gm.say(cur.q.text, { caption: false });
@@ -407,6 +459,10 @@ export async function startHost(app) {
       case "twist":
         if (cur.type === "drawful") {
           gm.say("What is it? Give it a title. A convincing, lying title.", { caption: false });
+          break;
+        }
+        if (cur.type === "job") {
+          gm.say(`Now, the interview. ${cur.prompt} Build your answer out of everyone else's words.`, { caption: false });
           break;
         }
         gm.say("Now for the fun part. You've been given someone else's answer. Tell us where it was really posted.", { caption: false });
@@ -506,6 +562,24 @@ export async function startHost(app) {
         vars = { name: nameOf(cur.victim) };
         break;
       }
+      case "poll":
+        if (v.miss <= 10) key = "poll_close";
+        vars = { name: nameOf(cur.pollster), guess: `${v.guess}`, answer: `${cur.pct} percent` };
+        break;
+      case "spiked":
+        key = v.caught?.length ? "spiked_caught" : "spiked_escaped";
+        vars = { name: v.caught?.length ? any(v.caught) : any(cur.spiked) };
+        break;
+      case "job":
+        vars = { winner: any((v.results ?? []).filter((a) => a.winner).map((a) => a.pid)), name: any(drinking("Zero votes")) };
+        break;
+      case "sort":
+        if (v.winner === null || v.winner === undefined) key = "sort_tie";
+        else vars = { team: ["Red", "Blue"][v.winner], name: nameOf(cur.captains?.[1 - v.winner]) };
+        break;
+      case "rap":
+        vars = { winner: nameOf(v.champion?.pid), name: nameOf(v.history?.[0]?.loser) };
+        break;
       case "sti": {
         const top = (v.results ?? []).find((x) => x.winner);
         vars = { winner: nameOf(top?.pid), victim: nameOf(top?.from), name: any(drinking("Zero votes")) };
@@ -549,8 +623,7 @@ export async function startHost(app) {
         // Fast-forward whatever is on screen (and shut the Landlord up).
         gm.stop();
         const st = live.room.state;
-        const patch = live.room.phase === "input" || live.room.phase === "vote" ? { deadline: 0 } : { until: 0 };
-        await set(live.room.phase, live.room.round, { ...st, ...patch });
+        await set(live.room.phase, live.room.round, { ...st, deadline: 0, until: 0 });
       } else if (act === "end") {
         // Finish early: skip the remaining rounds and go straight to the final scores.
         if (!confirm("End the game now and show the final scores?")) return;
@@ -674,7 +747,7 @@ export async function startHost(app) {
       case "buddy":
       case "match": {
         const { kind, ids } = expected(room.phase, cur, live.players);
-        const who = room.phase === "input" ? live.players : live.players.filter((p) => ids.includes(p.id));
+        const who = live.players.filter((p) => ids.includes(p.id));
         const done = new Set(live.subs.filter((x) => x.kind === (kind ?? "input")).map((x) => x.player_id));
         body = `<div class="stage">
           ${timerBar(st.deadline, st.span ?? st.settings.timer)}
@@ -727,6 +800,8 @@ export async function startHost(app) {
     const phase = room.phase;
     const name = (id) => esc(byId[id]?.name ?? "?");
     const cards = (items) => `<div class="answers">${items.map((t, i) => `<div class="answer pop" style="animation-delay:${i * 80}ms">${esc(t)}</div>`).join("")}</div>`;
+    const themed = newGameStage(phase, cur, byId);
+    if (themed) return themed;
     if (phase === "match") {
       const m = cur.match;
       const side = (e) => (cur.type === "tee" ? shirt(drawingOf(live.subs, e.img), e.text) : `<div class="answer">${esc(e.text)}</div>`);
@@ -825,6 +900,92 @@ export async function startHost(app) {
         return `<h1 class="prompt">${esc(cur.prompt)}</h1><p class="kicker">${hint ?? ""}</p>`;
       }
     }
+  }
+
+  // ------------------------------------------------------------ Pub Poll, Spiked, Interview, Sort, Rap
+
+  // A pie chart for Pub Poll: `pct` filled, with a big number in the middle.
+  const pie = (pct, label, cls = "") =>
+    `<div class="pie pop ${cls}" style="--p:${pct ?? 0}"><div class="pie-in"><b>${pct === null ? "?" : `${esc(pct)}%`}</b>${label ? `<small>${label}</small>` : ""}</div></div>`;
+
+  const TEAM = [{ name: "Red", cls: "red", emoji: "🔴" }, { name: "Blue", cls: "blue", emoji: "🔵" }];
+
+  // Pub Sort: a team's panel (players, with a crown on the captain), optionally with their order.
+  function sortTeam(cur, t, byId, order = null, correct = null) {
+    const team = cur.teams?.[t] ?? [];
+    return `<div class="sort-team ${TEAM[t].cls} pop">
+      <h2>${TEAM[t].emoji} ${TEAM[t].name} team</h2>
+      <div class="sort-players">${team.map((id) => `${id === cur.captains?.[t] ? "👑" : ""}${chip(byId[id])}`).join(" ")}</div>
+      ${order && !order.length ? `<p class="muted">❄️ The captain froze</p>` : ""}
+      ${order?.length ? `<ol class="sort-list">${order.map((i, pos) => `<li class="${correct[pos] === i ? "ok" : "bad"}">${correct[pos] === i ? "✅" : "❌"} ${esc(cur.items[i].name)}</li>`).join("")}</ol>` : ""}
+    </div>`;
+  }
+
+  // A rap verse: the opening line plus the player's line.
+  const verse = (e) => `<div class="verse"><span class="verse-open">${esc(e.opener?.line ?? "")}</span><span class="verse-line">${esc(e.text)}</span></div>`;
+
+  // The TV while phones are busy, for the newer games (null = not one of these).
+  function newGameStage(phase, cur, byId) {
+    const name = (id) => esc(byId[id]?.name ?? "?");
+    switch (cur.type) {
+      case "poll":
+        if (phase === "input")
+          return `<div class="poll-board"><div class="poll-head">📊 THE PUB POLL</div><h1 class="prompt">${esc(cur.prompt)}</h1>
+            <div class="poll-row">${pie(null, "")}<div class="spotlight pop">${avatar(byId[cur.pollster], "xl")}<div>${name(cur.pollster)} is guessing…</div></div></div></div>`;
+        if (phase === "vote")
+          return `<div class="poll-board"><div class="poll-head">📊 THE PUB POLL</div><h1 class="prompt">${esc(cur.prompt)}</h1>
+            <div class="poll-row">${pie(cur.guess, `${name(cur.pollster)}'s guess`)}
+            <p class="kicker poll-ask">${cur.guessed ? `${name(cur.pollster)} says <b>${cur.guess}%</b>` : `${name(cur.pollster)} fell asleep, so it's <b>50%</b>`}.<br>Higher ⬆️ or lower ⬇️? Call it on your phone!</p></div></div>`;
+        return null;
+      case "spiked":
+        if (phase === "input")
+          return `<div class="lab pop"><div class="lab-emoji">🧪</div><h1 class="prompt">Someone's been spiked…</h1>
+            <p class="kicker">Answer the question on your phone. One of you got a <b>different</b> question. Blend in.</p></div>`;
+        if (phase === "vote") {
+          const answers = live.subs.filter((x) => x.kind === "input");
+          return `<div class="lab-q">The question was: <b>${esc(cur.prompt)}</b></div>
+            <p class="kicker">One of these answers doesn't fit. Who's been spiked? Vote on your phone!</p>
+            <div class="lab-grid">${live.players.map((p, i) => {
+              const a = answers.find((x) => x.player_id === p.id)?.value?.text;
+              return `<div class="lab-card pop" style="--c:${esc(p.color)};animation-delay:${i * 90}ms">${avatar(p, "net")}<div><div class="net-name">${esc(p.name)}</div><div class="lab-answer">${esc(a ?? "…nothing")}</div></div></div>`;
+            }).join("")}</div>`;
+        }
+        return null;
+      case "sort":
+        if (phase === "input")
+          return `<h1 class="prompt">${esc(cur.prompt)}</h1>
+            <div class="sort-board">${sortTeam(cur, 0, byId)}
+              <div class="sort-items">${cur.items.map((it, i) => `<div class="sort-item pop" style="animation-delay:${i * 90}ms">${esc(it.name)}</div>`).join("")}</div>
+              ${sortTeam(cur, 1, byId)}</div>
+            <p class="kicker">👑 Captains: sort them on your phone. Everyone else: SHOUT at your captain!</p>`;
+        return null;
+      case "job":
+        if (phase === "input")
+          return `<div class="cv pop"><div class="cv-head">💼 BULLSH*T INTERVIEW · Application form</div>
+            <h1>First, a few icebreakers…</h1><p>Answer yours on your phone in <b>full sentences</b>.<br>Your words will be used against you.</p></div>`;
+        if (phase === "twist")
+          return `<div class="cv pop"><div class="cv-head">💼 BULLSH*T INTERVIEW · The interview</div>
+            <p class="cv-label">The panel asks:</p><h1>${esc(cur.prompt)}</h1>
+            <p>Build your answer on your phone — using only your mates' words.</p></div>`;
+        if (phase === "vote")
+          return `<div class="cv-q">💼 <b>${esc(cur.prompt)}</b></div><p class="kicker">Who gets the job? Vote on your phone!</p>
+            <div class="cv-grid">${(cur.answers ?? []).map((a, i) => `<div class="cv-card pop" style="animation-delay:${i * 100}ms">“${esc(a.text)}”</div>`).join("")}</div>`;
+        return null;
+      case "rap":
+        if (phase === "input")
+          return `<div class="rap-stage pop"><div class="rap-mic">🎤</div><p class="rap-label">Tonight's theme</p><h1 class="prompt">${esc(cur.prompt)}</h1>
+            <p class="kicker">Finish your verse on your phone. It has to rhyme!</p></div>`;
+        if (phase === "match" && cur.match) {
+          const m = cur.match;
+          return `<div class="rap-stage"><p class="rap-label">${esc(m.label)} · ${esc(cur.prompt)}</p>
+            <div class="rap-versus"><div class="rap-side red pop">${avatar(byId[m.a.pid], "lg")}<b>${name(m.a.pid)}</b>${verse(m.a)}</div>
+            <div class="vs">VS</div>
+            <div class="rap-side blue pop">${avatar(byId[m.b.pid], "lg")}<b>${name(m.b.pid)}</b>${verse(m.b)}</div></div>
+            <p class="kicker">Listen to the Landlord, then vote on your phone! 🎤</p></div>`;
+        }
+        return null;
+    }
+    return null;
   }
 
   // Wheel of Doom: an SVG wheel that spins to land on segment `index` (the pointer is at the top).
@@ -992,6 +1153,46 @@ export async function startHost(app) {
             <div class="a-meta">${o.truth ? "<b>THE REAL ONE</b>" : `Fake by ${o.pids.map((id) => chip(byId[id])).join("")}`}</div>
             <div class="a-meta small">${o.pickers.length ? `Picked by ${o.pickers.map(name).join(", ")}` : "Nobody picked it"}</div></div>`).join("")}</div>`;
         break;
+      case "poll": {
+        const who = (ids) => ids.map((id) => chip(byId[id])).join("") || `<span class="muted">nobody</span>`;
+        main = `<div class="poll-board"><div class="poll-head">📊 THE PUB POLL — RESULTS</div><h2 class="prompt sm">${esc(cur.prompt)}</h2>
+          <div class="poll-row">${pie(v.guess, `${name(cur.pollster)}'s guess`, "small")}<div class="poll-arrow">${v.truth === "higher" ? "⬆️" : v.truth === "lower" ? "⬇️" : "🎯"}</div>${pie(cur.pct, "the real answer", "truth")}</div>
+          ${cur.note ? `<p class="muted">${esc(cur.note)}</p>` : ""}
+          <div class="split"><div><h3>⬆️ Higher</h3>${who(v.calls?.higher ?? [])}</div><div><h3>⬇️ Lower</h3>${who(v.calls?.lower ?? [])}</div></div></div>`;
+        break;
+      }
+      case "spiked": {
+        const spiked = cur.spiked ?? [];
+        main = `<div class="lab-q">The crew were asked: <b>${esc(cur.prompt)}</b><br>🧪 The spiked question: <b>${esc(cur.alt)}</b></div>
+          <div class="spotlight pop">${spiked.map((id) => avatar(byId[id], "xl")).join("")}<div>🧪 ${spiked.map(name).join(" & ")} ${spiked.length === 1 ? "was" : "were"} spiked — ${v.caught?.length === spiked.length ? "CAUGHT!" : v.caught?.length ? "one got caught!" : "and got away with it!"}</div></div>
+          <div class="lab-grid">${(v.answers ?? []).map((a) => `<div class="lab-card ${spiked.includes(a.pid) ? "spiked" : ""}" style="--c:${esc(byId[a.pid]?.color ?? "#888")}">
+            ${avatar(byId[a.pid], "net")}<div><div class="net-name">${name(a.pid)} ${spiked.includes(a.pid) ? "🧪" : ""}</div><div class="lab-answer">${esc(a.text)}</div>
+            <div class="muted small">${(v.tally?.[a.pid] ?? []).length} vote(s)</div></div></div>`).join("")}</div>`;
+        break;
+      }
+      case "job":
+        main = `<div class="cv-q">💼 <b>${esc(cur.prompt)}</b></div>
+          <div class="cv-grid">${(v.results ?? []).map((a, i) => `<div class="cv-card pop ${a.winner ? "win" : ""}" style="animation-delay:${i * 150}ms">“${esc(a.text)}”
+            <div class="a-meta">${chip(byId[a.pid])} <b>${a.voters.length}</b> vote${a.voters.length === 1 ? "" : "s"} ${a.winner ? "💼 HIRED" : ""}</div>
+            ${a.from?.length ? `<div class="a-meta small muted">words by ${a.from.map(name).join(", ")}</div>` : ""}</div>`).join("") || `<p>Nobody applied?! Everybody drinks.</p>`}</div>`;
+        break;
+      case "sort": {
+        const correct = v.correct ?? [];
+        main = `<h2 class="prompt sm">${esc(cur.prompt)}</h2>
+          <div class="sort-board">${sortTeam(cur, 0, byId, v.res?.[0]?.order ?? [], correct)}
+            <div class="sort-items answer-key"><h3>The right order</h3>${correct.map((i, pos) => `<div class="sort-item pop" style="animation-delay:${pos * 120}ms"><b>${pos + 1}.</b> ${esc(cur.items[i].name)} <small>${esc(String(cur.items[i].v))}${esc(cur.unit ?? "")}</small></div>`).join("")}</div>
+            ${sortTeam(cur, 1, byId, v.res?.[1]?.order ?? [], correct)}</div>
+          <div class="spotlight pop">${v.winner === null ? "🤝 Dead heat! Everybody drinks." : `${TEAM[v.winner].emoji} ${TEAM[v.winner].name} team wins, ${v.res[v.winner].right}–${v.res[1 - v.winner].right}!`}</div>`;
+        break;
+      }
+      case "rap": {
+        const c = v.champion;
+        main = `<div class="rap-stage">${c ? `<div class="spotlight pop">🎤 RAP BATTLE CHAMPION 🎤</div>
+          <div class="rap-side win pop">${avatar(byId[c.pid], "xl")}<b>${name(c.pid)}</b>${verse(c)}</div>` : `<p>No verses?! Everybody drinks.</p>`}
+          <div class="tally">${(v.history ?? []).map((h) => `<div class="tally-row"><span class="muted">${esc(h.label)}</span> ${chip(byId[h.winner])} beat ${chip(byId[h.loser])}
+            <span class="voters">${Math.max(h.va.length, h.vb.length)}–${Math.min(h.va.length, h.vb.length)}</span></div>`).join("")}</div></div>`;
+        break;
+      }
       case "hol":
         main = `<div class="tally">${(v.results ?? []).map((q) => `<div class="tally-row hol-row"><span class="hot-q">${esc(q.q)}: ${q.answer === "higher" ? "⬆️ HIGHER" : "⬇️ LOWER"} than ${esc(q.than)} <small class="muted">(${esc(q.fact)})</small></span>
           <span>✅ ${q.right.map(name).join(", ") || "nobody"}</span><span>❌ ${q.wrong.map(name).join(", ") || "nobody"}</span></div>`).join("")}</div>`;

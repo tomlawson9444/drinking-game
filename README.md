@@ -67,6 +67,11 @@ Pick the **Game** in the lobby:
 | 🕵️ **Imposter** | Everyone gets the same secret word except the imposter (who only sees the category). Type a one-word clue, then vote them out | Caught: imposter drinks 3 · escaped: everyone else drinks 1 (imposter +300) |
 | 🎨 **What is it?** *(Drawful)* | One player draws a secret prompt; everyone else writes a fake title; spot the real one | Fooled: 1 sip · nobody gets it: the artist drinks 2 |
 | ⬆️⬇️ **Higher or Lower** | Three quick-fire questions — higher or lower than the number shown? | Each wrong answer: 1 sip · right: +100 |
+| 📊 **Pub Poll** *(Guesspionage)* | One player guesses what % of people do something (a pie chart on the TV); everyone else calls higher or lower | Wrong call: 1 sip · pollster more than 20 points off: 2 sips (within 3: +500) |
+| 🧪 **Spiked** *(Push the Button)* | Everyone answers a question, but one player (two in groups of 7+) secretly got a different one. The answers go up on the TV; vote out the spiker | Caught: spiker drinks 3 · escaped: everyone else drinks 1 (spiker +300) |
+| 💼 **Bullsh\*t Interview** *(Job Job)* | Answer an icebreaker in full sentences, then build a job-interview answer by tapping word tiles taken from everyone else's answers | Zero votes: 2 sips. Whoever supplied the winning answer's words gets a cut |
+| 🔢 **Pub Sort** *(Quixort)* | Red team vs blue team: each captain puts five things in order (years, heights, strengths…) while their team shouts at them | Losing team drinks 2 · dead heat: everyone drinks 1 |
+| 🎤 **Rap Battle** *(Mad Verse City)* | Finish your opening line with a rhyme; the Landlord raps each head-to-head out loud and the room votes, knockout-style | Every knocked-out rapper drinks 1. Champion +500 |
 | 🔥 **Hot Seat** | One player's in the hot seat; everyone writes them a question, they answer out loud, the rest vote truth or lie | Voted a liar: 2 sips · refusing a question: 3 |
 | 🎡 **Wheel of Doom** | The TV spins a wheel: everyone drinks, leader tax, a random victim, double points next round, waterfalls, pity points… | Whatever the wheel says |
 | 🍻 **Social** | A rule for the whole room | Whoever the rule says |
@@ -104,6 +109,7 @@ js/logic.js         round plan + scoring rules (pure, testable)
 js/gm.js            The Landlord: voice-over + captions
 js/prompts.js       prompt decks (mild + filthy) and the Landlord's lines — add your own in-jokes!
 js/prompts-extra.js extra prompt packs, merged into the decks
+js/prompts-games.js decks for Pub Poll, Spiked, Bullsh*t Interview, Pub Sort and Rap Battle
 js/cards.js         loads the Cards Against Sobriety deck (data/cah.json)
 data/cah.json       official Cards Against Humanity cards (CC BY-NC-SA 4.0)
 tools/build-cards.mjs  rebuilds data/cah.json from JSON Against Humanity
@@ -129,6 +135,9 @@ and only then repeats. On one TV that's about three weeks of nightly 15-round ga
 ## Adding prompts
 
 New packs can go in `js/prompts-extra.js`, which is merged into the decks automatically.
+
+The Pub Poll, Spiked, Bullsh\*t Interview, Pub Sort and Rap Battle decks live in `js/prompts-games.js`. Pub Poll
+and Pub Sort use real figures, rounded (survey results vary from study to study, so treat them as pub-quiz accurate).
 
 Edit the arrays in `js/prompts.js` (years, trivia, role sets, T-shirt ideas and Out of Context
 questions/contexts live there too; trivia lists the correct option first). Quip prompts use `___` for the blank; Would You Rather entries are
