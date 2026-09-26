@@ -2,9 +2,10 @@
 // No DOM or network here so it can be tested with plain Node.
 import { MILD, FILTHY, FIBS, YEARS, TRIVIA, ROLE_SETS, TEE_IDEAS, STI_QUESTIONS, STI_CONTEXTS, WHEEL, IMPOSTER_WORDS, DRAW_PROMPTS, HIGHER_LOWER, shuffle } from "./prompts.js";
 import { HAND_SIZE } from "./cards.js";
-import { POLLS, SPIKE_PAIRS, JOB_ICEBREAKERS, JOB_QUESTIONS, JOB_FILLERS, SORT_SETS, RAP_THEMES, RAP_OPENERS } from "./prompts-games.js";
+import { POLLS, SPIKE_PAIRS, JOB_ICEBREAKERS, JOB_QUESTIONS, JOB_FILLERS, SORT_SETS, RAP_THEMES, RAP_OPENERS,
+  KINGS_RULES, KINGS_RHYMES, KINGS_CATEGORIES, BOMB_CATEGORIES, TELE_IDEAS, FAST_GO, FAST_TRAPS } from "./prompts-games.js";
 
-const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, hot: 1, wheel: 1, imposter: 1, drawful: 1, hol: 2, social: 1, poll: 2, spiked: 1, job: 1, sort: 1, rap: 1 };
+const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, hot: 1, wheel: 1, imposter: 1, drawful: 1, hol: 2, social: 1, poll: 2, spiked: 1, job: 1, sort: 1, rap: 1, kings: 1, bomb: 2, tele: 1, fast: 2 };
 
 // A stable key for a prompt, used to remember what a group has already played.
 export const promptKey = (p) => (typeof p === "string" ? p : Array.isArray(p) ? p.join(" / ") : p.q ?? p.title ?? p.text ?? JSON.stringify(p));
@@ -25,7 +26,8 @@ export function buildPlan(rounds, types, opts = {}) {
       sort: [SORT_SETS],
       spiked: opts.filthy ? [SPIKE_PAIRS.filthy, SPIKE_PAIRS.mild] : [SPIKE_PAIRS.mild],
       job: opts.filthy ? [JOB_QUESTIONS.filthy, JOB_QUESTIONS.mild] : [JOB_QUESTIONS.mild],
-      rap: opts.filthy ? [RAP_THEMES.filthy, RAP_THEMES.mild] : [RAP_THEMES.mild] }[t] ??
+      rap: opts.filthy ? [RAP_THEMES.filthy, RAP_THEMES.mild] : [RAP_THEMES.mild],
+      bomb: opts.filthy ? [BOMB_CATEGORIES.filthy, BOMB_CATEGORIES.mild] : [BOMB_CATEGORIES.mild] }[t] ??
       (opts.filthy ? [FILTHY[t], MILD[t]] : [MILD[t]]);
     const fresh = packs.map((pack) => pack.filter((p) => !seen.has(promptKey(p))));
     const stale = packs.map((pack) => pack.filter((p) => seen.has(promptKey(p))));
@@ -47,7 +49,7 @@ export function buildPlan(rounds, types, opts = {}) {
     if (!options.length) options = bag;
     const type = options[Math.floor(Math.random() * options.length)];
     // Pub Brawl answers quip prompts, so it shares the quip deck.
-    const p = ["tee", "sti", "hot", "wheel", "hol"].includes(type) ? null : draw(type === "brawl" ? "quip" : type);
+    const p = ["tee", "sti", "hot", "wheel", "hol", "kings", "tele", "fast"].includes(type) ? null : draw(type === "brawl" ? "quip" : type);
     const key = p ? promptKey(p) : null;
     if (type === "fib") plan.push({ type, prompt: p.q, truth: p.a });
     else if (type === "year") plan.push({ type, prompt: p.q, year: p.year });
@@ -79,6 +81,16 @@ export function buildPlan(rounds, types, opts = {}) {
       const picked = [];
       for (const [name, v] of shuffle(p.items)) if (picked.length < 5 && !picked.some((x) => x.v === v)) picked.push({ name, v });
       plan.push({ type, prompt: p.q, unit: p.unit, items: picked });
+    } else if (type === "kings") plan.push({ type, prompt: "Kings Cup", deck: kingsDeck(), rhymes: shuffle(KINGS_RHYMES), cats: shuffle(KINGS_CATEGORIES) });
+    else if (type === "bomb") plan.push({ type, prompt: p });
+    else if (type === "tele") plan.push({ type, prompt: "Pub Telephone", ideas: shuffle(TELE_IDEAS) });
+    else if (type === "fast") {
+      // Three reaction tests; after the first, some are traps (don't tap the milk!).
+      const qs = [0, 1, 2].map((i) => {
+        const trap = i > 0 && Math.random() < 0.3;
+        return { i, delay: 1500 + Math.floor(Math.random() * 3500), trap, emoji: trap ? shuffle(FAST_TRAPS)[0] : FAST_GO };
+      });
+      plan.push({ type, prompt: "Fastest Finger", qs });
     } else if (type === "rap") plan.push({ type, prompt: fill(p), openers: shuffle(RAP_OPENERS) });
     else if (type === "wyr") plan.push({ type, prompt: p.map(fill) });
     else plan.push({ type, prompt: fill(p) });
@@ -108,6 +120,17 @@ export function expected(phase, round, players) {
     if (phase === "input") return { kind: "input", ids: players.filter((p) => p.id === round.pollster).map((p) => p.id) };
     if (phase === "vote") return { kind: "vote", ids: players.filter((p) => p.id !== round.pollster).map((p) => p.id) };
   }
+  // Kings Cup: the drawer draws and makes any choice; tap races are for everyone.
+  if (phase === "kings") {
+    if (round.step === "tap") return { kind: `m${round.beat}`, ids: players.map((p) => p.id) };
+    if (["draw", "pick", "mate", "loser", "rule"].includes(round.step)) return { kind: `m${round.beat}`, ids: players.filter((p) => p.id === round.drawer).map((p) => p.id) };
+    return { kind: null, ids: [] };
+  }
+  if (phase === "bomb") return { kind: `m${round.beat}`, ids: players.filter((p) => p.id === round.holder).map((p) => p.id) };
+  if (phase === "tele") return { kind: `m${round.step}`, ids: players.filter((p) => round.order?.includes(p.id)).map((p) => p.id) };
+  if (phase === "vote" && round.type === "tele") return { kind: "vote", ids: players.map((p) => p.id) };
+  // Fastest Finger: everyone taps, except on a trap (nobody should).
+  if (phase === "fast" && round.q) return { kind: `m${round.q.i}`, ids: round.q.trap ? [] : players.map((p) => p.id) };
   // Pub Sort: each team's captain sorts.
   if (phase === "input" && round.type === "sort") return { kind: "input", ids: players.filter((p) => round.captains?.includes(p.id)).map((p) => p.id) };
   // Bullsh*t Interview: build an answer from the word tiles, then vote like Quip Clash.
@@ -324,6 +347,83 @@ export function sortTeams(players, seen = []) {
 
 // The right order (item indices, smallest value first).
 export const sortAnswer = (items) => items.map((_, i) => i).sort((a, b) => items[a].v - items[b].v);
+
+// ------------------------------------------------------------------ Kings Cup
+
+const SUITS = ["♠", "♥", "♦", "♣"];
+const RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q"];
+// A short deck: all four kings plus six other cards, so the cup always fills in one round.
+export function kingsDeck() {
+  const kings = SUITS.map((suit) => ({ rank: "K", suit }));
+  const others = shuffle(RANKS.flatMap((rank) => SUITS.map((suit) => ({ rank, suit })))).slice(0, 6);
+  return shuffle([...kings, ...others]);
+}
+export const kingsRule = (card) => KINGS_RULES[card?.rank] ?? KINGS_RULES.A;
+
+// What happens once a card's action is done: who drinks, plus any new drinking buddy or house rule.
+// `subs` are this card's submissions (kind m<beat>).
+export function kingsOutcome(cur, subs, players, nameOf = (id) => id) {
+  const ids = players.map((p) => p.id);
+  const card = cur.card;
+  const rule = kingsRule(card);
+  const drawer = cur.drawer;
+  const others = ids.filter((id) => id !== drawer);
+  const picked = subs.find((x) => x.player_id === drawer)?.value;
+  const target = others.includes(picked?.target) ? picked.target : null;
+  const out = { drinks: [], mate: null, rule: null, kings: cur.kings ?? 0 };
+  const drink = (pid, sips, why) => pid && out.drinks.push({ pid, sips, why });
+  switch (card.rank) {
+    case "A": ids.forEach((id) => drink(id, 1, "Waterfall")); break;
+    case "2": drink(target ?? shuffle(others)[0], 2, "Told to drink"); break;
+    case "3": drink(drawer, 2, "Me!"); break;
+    case "4":
+    case "7": {
+      const taps = new Map(subs.filter((x) => ids.includes(x.player_id) && Number.isFinite(x.value?.ms)).map((x) => [x.player_id, x.value.ms]));
+      const missing = ids.filter((id) => !taps.has(id));
+      const why = card.rank === "4" ? "Last to the floor" : "Last hand up";
+      if (missing.length) missing.forEach((id) => drink(id, 1, why));
+      else if (taps.size > 1) drink([...taps.entries()].sort((a, b) => b[1] - a[1])[0][0], 1, why);
+      break;
+    }
+    case "5": out.rule = `${nameOf(drawer)} is Thumb Master: thumb on the table, last to copy drinks.`; break;
+    case "6": ids.forEach((id) => drink(id, 1, "Social")); break;
+    case "8": {
+      const mate = target ?? shuffle(others)[0];
+      if (mate) out.mate = { a: drawer, b: mate };
+      break;
+    }
+    case "9":
+    case "10":
+      if (target) drink(target, 1, card.rank === "9" ? "Fluffed the rhyme" : "Fluffed the category");
+      else drink(drawer, 1, "Couldn't decide");
+      break;
+    case "J": out.rule = String(picked?.text ?? "").trim().slice(0, 120) || null; break;
+    case "Q": out.rule = `${nameOf(drawer)} is Question Master: answer their questions and you drink.`; break;
+    case "K":
+      out.kings += 1;
+      if (out.kings >= 4) drink(drawer, 5, "Downed the King's Cup");
+      break;
+  }
+  out.rank = card.rank;
+  out.name = rule.name;
+  return out;
+}
+
+// ------------------------------------------------------------------ Pub Telephone
+
+// Chain c's entry at step s is made by order[(c + s) % n]. Even steps are writing, odd steps drawing.
+export function teleChains(order, steps) {
+  const n = order.length;
+  return order.map((_, c) => ({ c, entries: Array.from({ length: steps }, (_, s) => ({ step: s, pid: order[(c + s) % n] })) }));
+}
+// Which chain a player works on at a step, and who made the entry they're responding to.
+export function teleTask(order, step, pid) {
+  const n = order.length;
+  const i = order.indexOf(pid);
+  if (i < 0) return null;
+  const c = (((i - step) % n) + n) % n;
+  return { c, prev: step > 0 ? order[(c + step - 1) % n] : null };
+}
 
 // ------------------------------------------------------------------ Cards Against Sobriety
 
@@ -749,6 +849,59 @@ export function scoreRound(round, players, subs) {
       }));
       teams.forEach((_, t) => !res[t].order && add(round.captains?.[t], 0, 1, "Captain froze"));
       Object.assign(view, { correct, res, winner });
+      break;
+    }
+    case "kings":
+      for (const e of round.log ?? []) for (const d of e.drinks ?? []) add(d.pid, 0, d.sips, d.why);
+      view.log = round.log ?? [];
+      break;
+    case "bomb": {
+      (round.passes ?? []).forEach((x) => add(x.pid, 50, 0, "Passed the bomb"));
+      if (round.boom) add(round.boom, 0, 3, "The bomb went off");
+      view.passes = round.passes ?? [];
+      break;
+    }
+    case "tele": {
+      const chains = round.chains ?? [];
+      const got = chains.map(() => []);
+      for (const v of votes) {
+        const c = Number(String(v.value?.target ?? "").replace(/^c/, ""));
+        if (Number.isInteger(c) && got[c]) got[c].push(v.player_id);
+      }
+      const top = Math.max(0, ...got.map((g) => g.length));
+      chains.forEach((ch, c) => {
+        if (top > 0 && got[c].length === top) {
+          // The starter wrote the line that kicked it off; everyone who kept it going gets a little.
+          add(ch.entries[0]?.pid, 200, 0, "Best chain");
+          [...new Set(ch.entries.slice(1).map((e) => e.pid))].forEach((pid) => add(pid, 50, 0, "In the best chain"));
+        }
+        else if (chains.length > 1 && !got[c].length) add(ch.entries[0]?.pid, 0, 1, "Nobody liked your chain");
+      });
+      // Missing a step breaks the chain.
+      const done = new Set(subs.filter((x) => /^m\d+$/.test(x.kind)).map((x) => `${x.player_id}:${x.kind}`));
+      const missed = {};
+      chains.forEach((ch) => ch.entries.forEach((e) => !done.has(`${e.pid}:m${e.step}`) && (missed[e.pid] = (missed[e.pid] ?? 0) + 1)));
+      Object.entries(missed).forEach(([pid, n]) => add(pid, 0, Math.min(2, n), "Broke the chain"));
+      view.votes = got;
+      break;
+    }
+    case "fast": {
+      view.results = (round.qs ?? []).map((q) => {
+        const vs = subs.filter((x) => x.kind === `m${q.i}` && ids.includes(x.player_id));
+        const early = vs.filter((x) => x.value?.early).map((x) => x.player_id);
+        const taps = vs.filter((x) => !x.value?.early && Number.isFinite(x.value?.ms)).map((x) => ({ pid: x.player_id, ms: Math.max(0, Math.round(x.value.ms)) })).sort((a, b) => a.ms - b.ms);
+        const tapped = new Set(vs.map((x) => x.player_id));
+        early.forEach((id) => add(id, 0, 1, "Jumped the gun"));
+        if (q.trap) {
+          taps.forEach((t) => add(t.pid, 0, 1, "Fell for the trap"));
+          ids.filter((id) => !tapped.has(id)).forEach((id) => add(id, 100, 0, "Held your nerve"));
+        } else {
+          if (taps[0]) add(taps[0].pid, 200, 0, "Fastest finger");
+          if (taps.length > 1) add(taps[taps.length - 1].pid, 0, 1, "Slowest finger");
+          ids.filter((id) => !tapped.has(id)).forEach((id) => add(id, 0, 1, "Asleep"));
+        }
+        return { ...q, taps, early };
+      });
       break;
     }
     case "hol": {

@@ -58,3 +58,24 @@ export function shirt(src, slogan, extra = "") {
 
 // The drawing for a pid from this round's input submissions.
 export const drawingOf = (subs, pid) => subs.find((s) => s.kind === "input" && s.player_id === pid)?.value?.img;
+
+// A playing card (Kings Cup). No card = face down.
+export function playingCard(card, extra = "") {
+  if (!card) return `<div class="pcard back ${extra}"><span>🍺</span></div>`;
+  const red = card.suit === "♥" || card.suit === "♦" ? "red" : "";
+  const face = `${esc(card.rank)}${esc(card.suit)}`;
+  return `<div class="pcard ${red} ${extra}"><span class="pc-corner">${face}</span><span class="pc-mid">${card.rank === "K" ? "👑" : esc(card.suit)}</span>
+    <span class="pc-corner br">${face}</span></div>`;
+}
+
+// Fastest Finger: light up the pad once this screen's own random wait is over. `seen` remembers
+// when each test first appeared here, so re-renders don't restart the wait.
+export function armFast(seen, key) {
+  const el = document.querySelector(".fast-pad");
+  if (!el) return;
+  seen[key] ??= performance.now();
+  const left = +el.dataset.delay - (performance.now() - seen[key]);
+  const go = () => document.querySelector(`.fast-pad[data-key="${key}"]`)?.classList.add("go");
+  if (left <= 0) go();
+  else setTimeout(go, left);
+}

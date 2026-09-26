@@ -1,10 +1,11 @@
 // The phone controller: join a room, answer, vote, find out if you drink.
 import { api, watchRoom, store } from "./api.js";
 import { ROUND_INFO } from "./prompts.js";
-import { norm, fillCard, isBlank, JOB_MAX_WORDS } from "./logic.js";
+import { norm, fillCard, isBlank, JOB_MAX_WORDS, teleTask } from "./logic.js";
+import { KINGS_RULES } from "./prompts-games.js";
 import { HOT_IDEAS } from "./prompts.js";
 import { createGM } from "./gm.js";
-import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf, safeImg } from "./ui.js";
+import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf, safeImg, playingCard, armFast } from "./ui.js";
 
 const PENS = ["#111111", "#ff4f79", "#ffb400", "#3ddc97", "#4cc9f0", "#b388ff", "#8b4513", "#ffffff"];
 
@@ -23,6 +24,9 @@ export function startPlayer(app, me, onLeave) {
     if (scratch.round !== round) scratch = { round, picks: [], img: null, pen: PENS[0], size: 6, slogan: "", make: {}, cards: [], win: null, blanks: {}, words: [], sort: [] };
     return scratch;
   };
+
+  // When each reaction test / tap race first appeared on this phone (to time the tap).
+  const seenAt = {};
 
   async function send(kind, value) {
     if (sending) return;
@@ -64,6 +68,9 @@ export function startPlayer(app, me, onLeave) {
     if (act === "hol") return send(`m${live.room.state.cur.q.i}`, { pick: val });
     if (act === "buddy-pick") return send("buddy", { target: val });
     if (act === "poll-hl") return send("vote", { pick: val });
+    if (act === "kings-draw") return send(`m${live.room.state.cur.beat}`, { draw: true });
+    if (act === "kings-pick") return send(`m${live.room.state.cur.beat}`, { target: val });
+    if (act === "kings-rule") return send(`m${live.room.state.cur.beat}`, { text: live.room.state.cur.options?.[+val] });
     if (act === "sort-pick" || act === "sort-undo") {
       const sc = fresh(live.room.round);
       if (act === "sort-undo") sc.sort.pop();
@@ -155,7 +162,48 @@ export function startPlayer(app, me, onLeave) {
       onLeave();
     }
   });
+  // Reaction taps react on touch-down, not on release.
+  app.addEventListener("pointerdown", (e) => {
+    const cur = live.room?.state?.cur;
+    if (e.target.closest(".fast-pad") && live.room.phase === "fast") {
+      const key = `${live.room.round}:${cur.q.i}`;
+      const waited = performance.now() - (seenAt[key] ?? performance.now());
+      if (waited < cur.q.delay) send(`m${cur.q.i}`, { early: true });
+      else send(`m${cur.q.i}`, { ms: Math.round(waited - cur.q.delay) });
+    } else if (e.target.closest("[data-act=kings-tap]") && live.room.phase === "kings") {
+      const key = `${live.room.round}:k${cur.beat}`;
+      send(`m${cur.beat}`, { ms: Math.round(performance.now() - (seenAt[key] ?? performance.now())) });
+    }
+  });
+
   app.addEventListener("submit", (e) => {
+    const cur = live.room?.state?.cur;
+    if (e.target.id === "bomb-form") {
+      e.preventDefault();
+      const text = $("#bomb-text").value.trim();
+      if (!text) return toast("Name something! 💣");
+      if (cur.used?.includes(norm(text))) return toast("Already said! Quick, another one! 💣");
+      return send(`m${cur.beat}`, { text });
+    }
+    if (e.target.id === "kings-rule-form") {
+      e.preventDefault();
+      const text = $("#rule-text").value.trim();
+      if (!text) return toast("Write a rule!");
+      return send(`m${cur.beat}`, { text });
+    }
+    if (e.target.id === "tele-form") {
+      e.preventDefault();
+      const text = $("#quip-text").value.trim();
+      if (!text) return toast("Write something!");
+      draft = "";
+      return send(`m${cur.step}`, { text });
+    }
+    if (e.target.id === "tele-draw-form") {
+      e.preventDefault();
+      const sc = fresh(live.room.round);
+      if (!sc.img) return toast("Draw something first! 🎨");
+      return send(`m${cur.step}`, { img: sc.img });
+    }
     if (e.target.id === "draw-form") {
       e.preventDefault();
       const sc = fresh(live.room.round);
@@ -190,7 +238,6 @@ export function startPlayer(app, me, onLeave) {
     e.preventDefault();
     const text = $("#quip-text").value.trim();
     if (!text) return toast("Write something funny!");
-    const cur = live.room?.state?.cur;
     if (cur?.type === "fib" && norm(text) === norm(cur.truth)) return toast("That's actually the truth! Lie better. 🤥");
     if (cur?.type === "drawful" && norm(text) === norm(cur.prompt)) return toast("Ha — that's actually what it is! Lie better. 🤥");
     draft = "";
@@ -510,6 +557,95 @@ export function startPlayer(app, me, onLeave) {
         break;
       }
 
+      case "kings": {
+        const timer = timerBar(st.deadline, st.span ?? 15);
+        const kind = `m${cur.beat}`;
+        const drawer = live.players.find((p) => p.id === cur.drawer);
+        const me = cur.drawer === playerId;
+        if (cur.step === "draw") {
+          if (!me) body = timer + `<div class="locked pop">${playingCard(null, "big")}<h2>${esc(drawer?.name ?? "Someone")} is drawing…</h2></div>`;
+          else if (mySub(kind)) body = timer + lockedIn("Drawing… 🃏");
+          else body = `${timer}<h2 class="center-text">👑 Your turn!</h2><button class="pcard-btn" data-act="kings-draw">${playingCard(null, "big")}<span>Tap to draw a card</span></button>`;
+          break;
+        }
+        const r = KINGS_RULES[cur.card.rank];
+        const head = `${timer}<div class="kings-phone">${playingCard(cur.card, "mid")}<div><h2>${esc(r.name)}</h2><p class="muted">${esc(r.rule)}</p>
+          ${cur.word ? `<p class="kings-word sm">${esc(cur.word)}</p>` : ""}</div></div>`;
+        const others = live.players.filter((p) => p.id !== playerId);
+        if (cur.step === "tap") {
+          seenAt[`${room.round}:k${cur.beat}`] ??= performance.now();
+          body = mySub(kind) ? head + lockedIn("Tapped! 👌") : `${head}<button class="fast-tap-btn" data-act="kings-tap">${esc(r.button)}</button>`;
+        } else if (["pick", "mate", "loser"].includes(cur.step) && me && !mySub(kind)) {
+          const ask = { pick: "Who drinks 2?", mate: "Pick your mate 🤝", loser: "Who fluffed it?" }[cur.step];
+          body = `${head}<p class="prompt-sm">${ask}</p><div class="choices">${others.map((p) => `<button class="choice" data-act="kings-pick" data-val="${p.id}" style="--c:${esc(p.color)}">${avatar(p)}${esc(p.name)}</button>`).join("")}</div>`;
+        } else if (cur.step === "rule" && me && !mySub(kind)) {
+          body = `${head}<div class="choices">${(cur.options ?? []).map((o, i) => `<button class="choice" data-act="kings-rule" data-val="${i}">${esc(o)}</button>`).join("")}</div>
+            <form id="kings-rule-form" class="quip-form"><input id="rule-text" class="slogan-input" maxlength="120" placeholder="…or write your own rule">
+            <button class="btn" type="submit">Make it law ⚖️</button></form>`;
+        } else body = head + (me && cur.step !== "card" ? lockedIn("Done! 👑") : `<p class="center-text muted">Drawn by ${esc(drawer?.name ?? "someone")}</p>`);
+        break;
+      }
+
+      case "bomb": {
+        const holder = live.players.find((p) => p.id === cur.holder);
+        const used = (cur.passes ?? []).map((x) => `<span class="used">${esc(x.text)}</span>`).join("");
+        if (cur.holder !== playerId) {
+          body = `<div class="locked pop"><div class="big-emoji">💣</div><h2>${esc(holder?.name ?? "Someone")} has the bomb!</h2><p>Category: <b>${esc(cur.prompt)}</b></p>
+            <p class="muted">Get an answer ready…</p></div><div class="bomb-used">${used}</div>`;
+        } else if (mySub(`m${cur.beat}`)) body = lockedIn("Passing… 💣");
+        else {
+          const bounced = cur.last && !cur.last.ok && cur.last.pid === playerId;
+          body = `<div class="bomb-phone pop"><div class="bomb-big">💣</div><h2>YOU'VE GOT THE BOMB!</h2><p class="prompt-sm">${esc(cur.prompt)}</p>
+            ${bounced ? `<p class="bad">“${esc(cur.last.text)}” was already said! Another one!</p>` : ""}
+            <form id="bomb-form" class="quip-form"><input id="bomb-text" class="slogan-input" maxlength="40" autocomplete="off" placeholder="Name one — quick!">
+            <button class="btn big danger" type="submit">Pass it! 💣</button></form></div><div class="bomb-used">${used}</div>`;
+        }
+        break;
+      }
+
+      case "tele": {
+        const timer = timerBar(st.deadline, st.span ?? 60);
+        const task = teleTask(cur.order ?? [], cur.step, playerId);
+        const kind = `m${cur.step}`;
+        const prev = task?.prev ? live.subs.find((x) => x.kind === `m${cur.step - 1}` && x.player_id === task.prev)?.value : null;
+        if (!task) body = timer + lockedIn("Sit tight — you joined mid-round.");
+        else if (mySub(kind)) body = timer + lockedIn(cur.step % 2 ? "Masterpiece sent! 🖼️" : "Sent! ✍️");
+        else if (cur.step === 0) {
+          const idea = cur.ideas?.[cur.order.indexOf(playerId) % (cur.ideas?.length || 1)];
+          body = `${timer}<p class="prompt-sm">Write something for someone to draw ✍️</p>
+            <form id="tele-form" class="quip-form"><textarea id="quip-text" maxlength="80" rows="2" placeholder="e.g. ${esc(idea ?? "")}">${esc(draft)}</textarea>
+            <button class="btn big" type="submit">Send it</button></form>`;
+        } else if (cur.step % 2) {
+          const sc = fresh(room.round);
+          if (sc.teleStep !== cur.step) Object.assign(sc, { teleStep: cur.step, img: null });
+          body = `${timer}<p class="muted center-text">Draw this — no words!</p><p class="prompt-sm">${prev?.text ? `“${esc(prev.text)}”` : "(They didn't write anything. Draw whatever you like!)"}</p>
+            <canvas id="tee-canvas" class="tee-canvas" width="240" height="240"></canvas>
+            <div class="pens">${PENS.map((c) => `<button class="pen ${sc.pen === c ? "on" : ""}" data-act="pen" data-val="${c}" style="--c:${c}" aria-label="${c === "#ffffff" ? "Eraser" : "Pen colour"}">${c === "#ffffff" ? "🧽" : ""}</button>`).join("")}
+              <button class="btn ghost sm" data-act="pen-clear">Clear</button></div>
+            <form id="tele-draw-form" class="quip-form"><button class="btn big" type="submit">Done 🖼️</button></form>`;
+        } else {
+          const img = safeImg(prev?.img);
+          body = `${timer}<p class="prompt-sm">What's this? Describe it 🔎</p>${img ? `<div class="drawing sm"><img src="${img}" alt="A drawing"></div>` : `<p class="muted center-text">(No drawing — make something up!)</p>`}
+            <form id="tele-form" class="quip-form"><textarea id="quip-text" maxlength="80" rows="2" placeholder="It's obviously…">${esc(draft)}</textarea>
+            <button class="btn big" type="submit">Send it</button></form>`;
+        }
+        break;
+      }
+
+      case "teleshow":
+        body = `<div class="center pop"><div class="big-emoji">📺</div><h2>Watch the TV!</h2><p class="muted">Chain ${cur.show + 1} of ${cur.chains?.length ?? "?"}</p></div>`;
+        break;
+
+      case "fast": {
+        const q = cur.q;
+        const sub = mySub(`m${q.i}`)?.value;
+        if (sub) body = `<div class="verdict ${sub.early || q.trap ? "drink" : "safe"} pop"><div class="big-emoji">${sub.early ? "🙈" : q.trap ? "🥛" : "⚡"}</div>
+          <h1>${sub.early ? "Too soon!" : q.trap ? "That wasn't beer!" : `${sub.ms} ms`}</h1></div>`;
+        else body = `<p class="muted center-text">Test ${q.i + 1} of ${cur.qs.length} · tap on the 🍺 only</p>
+          <button class="fast-pad ${q.trap ? "trap" : ""}" data-delay="${q.delay}" data-key="${room.round}:${q.i}"><span class="wait">Wait for it…</span><span class="goemoji">${q.emoji}</span></button>`;
+        break;
+      }
+
       case "buddy": {
         const timer = timerBar(st.deadline, st.span ?? 30);
         const maker = live.players.find((p) => p.id === cur.maker);
@@ -645,6 +781,17 @@ export function startPlayer(app, me, onLeave) {
               <button class="btn big" data-act="make-done">Print it 👕</button>`;
           break;
         }
+        if (cur.type === "tele") {
+          const textOf = (e) => live.subs.find((x) => x.kind === `m${e.step}` && x.player_id === e.pid)?.value?.text;
+          if (mySub("vote")) body = timer + lockedIn("Vote cast! 🗳️");
+          else
+            body = `${timer}<p class="prompt-sm">Which chain was best?</p>
+              <div class="choices">${(cur.chains ?? []).map((ch) => {
+                const texts = ch.entries.filter((e) => e.step % 2 === 0).map(textOf).filter(Boolean);
+                return `<button class="choice answer-choice" data-act="vote" data-val="c${ch.c}">Chain ${ch.c + 1}: “${esc(texts[0] ?? "…")}”${texts.length > 1 ? ` → “${esc(texts[texts.length - 1])}”` : ""}</button>`;
+              }).join("")}</div>`;
+          break;
+        }
         if (cur.type === "poll") {
           const pollster = live.players.find((p) => p.id === cur.pollster);
           if (cur.pollster === playerId) body = timer + `<div class="locked pop"><div class="big-emoji">📊</div><h2>You said ${cur.guess}%</h2><p class="muted">Everyone's deciding if you're too high or too low…</p></div>`;
@@ -739,6 +886,11 @@ export function startPlayer(app, me, onLeave) {
       <main>${body}</main></div>
       <input type="file" id="photo-input" accept="image/*" capture="user" hidden>`;
     setupCanvas();
+    if (room.phase === "fast") {
+      seenAt[`${room.round}:${cur.q.i}`] ??= performance.now();
+      armFast(seenAt, `${room.round}:${cur.q.i}`);
+    }
+    $("#bomb-text")?.focus();
     if (hadFocus) {
       const ta = $("#quip-text");
       ta?.focus();

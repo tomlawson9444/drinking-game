@@ -670,6 +670,24 @@ export const LINES = {
     "{winner} wins. Stormzy is shaking. {name}, you were knocked out first. Drink.",
     "And the crowd goes mild. {winner} takes the crown. {name}, go home and think about what you've done.",
   ],
+  kings: [
+    "The King's Cup is empty, and so is {name}'s dignity. Well drunk.",
+    "Four kings, one cup, and {name} drank the lot. Someone get them a glass of water. And a priest.",
+  ],
+  bomb: [
+    "Boom. {name} was holding the bomb. Drink three, and try to think faster next time.",
+    "{name}, you had one job. Name one thing. Instead, you exploded. Drink.",
+    "And the bomb goes off in {name}'s hands. Tragic. Hilarious, but tragic. Drink three.",
+  ],
+  tele: [
+    "{winner}'s chain wins. Nobody knows how a pigeon became a nun, but here we are.",
+    "The room has spoken. {winner}, your chain was the most confusing, and I mean that as a compliment.",
+  ],
+  fast: [
+    "{name}, slowest finger in the pub. Drink. Your reflexes are sponsored by Wetherspoons.",
+    "{name}. I've seen faster reactions from a pint of Guinness settling. Drink.",
+    "{name}, you tapped the milk. It was milk. Drink.",
+  ],
   final: [
     "That's the game. {winner} wins. Enjoy it, {winner}, it's the most anyone's ever rated you. {thirsty} drank the most, and {last} came last, which feels about right.",
     "Your winner is {winner}. Take a bow. Not too low, you'll fall over. {thirsty}, you drank the most. Have some water. And maybe a word with yourself.",
@@ -716,6 +734,10 @@ export const PARTY_GAMES = [
   { type: "job", blurb: "Answer icebreakers, then build job-interview answers out of your mates' words.", min: 3 },
   { type: "sort", blurb: "Two teams. Each captain puts five things in order while their team shouts at them.", min: 4 },
   { type: "rap", blurb: "Finish a rap verse. The Landlord raps them out loud, the room picks the winner.", min: 3 },
+  { type: "kings", blurb: "Ring of Fire: draw cards on your phone, obey the card. Fourth king downs the King's Cup." },
+  { type: "bomb", blurb: "Hot potato: name something in the category to pass the bomb before it goes off.", min: 3 },
+  { type: "tele", blurb: "Write, draw, describe, draw: a game of telephone on your phones. Vote for the best chain.", min: 3 },
+  { type: "fast", blurb: "Reaction test: tap when you see the beer. Slowest drinks. Don't tap the milk!" },
   { type: "social", blurb: "A quick rule for the whole room — waterfalls, categories, thumb master." },
 ];
 
@@ -744,6 +766,10 @@ export const ROUND_INFO = {
   job: { title: "Bullsh*t Interview", emoji: "💼", rules: "Answer the icebreaker in full sentences. Then build your job interview answer out of everyone else's words. Most votes gets the job; zero votes drinks 2." },
   sort: { title: "Pub Sort", emoji: "🔢", rules: "Two teams. Each captain puts the items in order on their phone while the team shouts. The losing team drinks 2." },
   rap: { title: "Rap Battle", emoji: "🎤", rules: "Finish your verse with a rhyme. The Landlord raps each battle; vote for the best. Knocked out? Drink 1. Champion takes 500." },
+  kings: { title: "Kings Cup", emoji: "👑", rules: "Take turns drawing a card on your phone and obey it. Each king gets poured into the King's Cup; whoever draws the 4th king downs it." },
+  bomb: { title: "Hot Potato Bomb", emoji: "💣", rules: "Name something in the category to pass the bomb. No repeats! Whoever's holding it when it explodes drinks 3." },
+  tele: { title: "Pub Telephone", emoji: "🎨", rules: "Write a line, then draw what you're given, then describe what you see. Watch it all go wrong on the TV and vote for the best chain." },
+  fast: { title: "Fastest Finger", emoji: "⚡", rules: "Tap your phone the moment you see the 🍺. Slowest drinks, jump the gun and you drink. Don't tap anything else!" },
   social: { title: "Social", emoji: "🍻", rules: "Everybody follow the rule on screen!" },
 };
 

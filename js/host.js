@@ -2,11 +2,13 @@
 // gives The Landlord (the game-master voice) his cues.
 import { api, watchRoom, newToken, store } from "./api.js";
 import { ROUND_INFO, PARTY_GAMES, RULES, WHEEL, shuffle } from "./prompts.js";
+import { KINGS_RULES } from "./prompts-games.js";
 import { buildPlan, allIn, expected, quipAnswers, fibOptions, scoreRound, brawlInit, brawlNext, brawlRecord, teeOffers, teeShirts, stiTwists, stiPosts, whitePile, dealHands, cardPlays, discardPlays, fillCard,
-  isBlank, wheelSpin, hotVictim, hotQuestions, applyBuddies, buddyRounds, spikedPick, jobBanks, jobAnswers, sortTeams, sortAnswer } from "./logic.js";
+  isBlank, wheelSpin, hotVictim, hotQuestions, applyBuddies, buddyRounds, spikedPick, jobBanks, jobAnswers, sortTeams, sortAnswer,
+  kingsRule, kingsOutcome, teleChains, norm } from "./logic.js";
 import { createGM } from "./gm.js";
 import { loadCards, cardDeck, CARDS_CREDIT } from "./cards.js";
-import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf, safeImg } from "./ui.js";
+import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf, safeImg, playingCard, armFast } from "./ui.js";
 
 const INTRO_MS = 5000;
 const REVEAL_MS = 12000;
@@ -24,8 +26,22 @@ const BUDDY_S = 30; // the buddy-round winner's time to choose
 const RAP_MATCH_S = 40; // each rap battle (the Landlord raps both verses first)
 const SORT_S = 60; // minimum time for the Pub Sort captains
 const JOB_S = 75; // minimum time to build an interview answer
+const KINGS_DRAW_S = 15; // Kings Cup: time to draw a card
+const KINGS_CARD_S = 7; // showing a card with nothing to do
+const KINGS_PICK_S = 20; // the drawer picks someone
+const KINGS_GAME_S = 40; // rhymes / categories round the room, then pick who fluffed it
+const KINGS_RULE_S = 30; // the drawer writes a rule
+const KINGS_TAP_S = 8; // floor / heaven tap race
+const BOMB_MIN_S = 35; // Hot Potato Bomb: the secret fuse is somewhere between these
+const BOMB_MAX_S = 70;
+const TELE_DRAW_S = 80; // Pub Telephone drawing steps
+const TELE_DESCRIBE_S = 40;
+const TELE_SHOW_MS = 3500; // per entry when the TV replays a chain
+const FAST_WINDOW_MS = 6000; // Fastest Finger: time to tap after the beer appears
+const FAST_TRAP_MS = 3000; // how long a trap stays up
+const FAST_SLACK_MS = 2500; // phones get the round a little after the TV
 const ROUND_LENGTHS = [[6, "Quick"], [10, "Standard"], [20, "Session"], [40, "All night"]];
-const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted|Czar's favourite|Believed|Pity points|Spotted|Undercover|Good drawing|^Right$|Nailed|Close poll|Not bad|Called it|Got away|hired|right place|Team win/;
+const POINT_REASONS = /^\d+ votes?$|crowd|majority|Unanimous|Found the truth|Fooled someone|Correct|Agreed|Closest|Close-ish|Bang on|Champion|Drew|Wrote|twisted|Czar's favourite|Believed|Pity points|Spotted|Undercover|Good drawing|^Right$|Nailed|Close poll|Not bad|Called it|Got away|hired|right place|Team win|Passed the bomb|Best chain|In the best chain|Fastest finger|Held your nerve/;
 
 const DEFAULT_SETTINGS = {
   mode: "party", rounds: 10, target: 7, timer: 45, filthy: true, voice: true, tvVoice: true, rules: true, buddies: true,
@@ -192,6 +208,18 @@ export async function startHost(app) {
           await set("input", room.round, { ...st, sortSeen: [...(st.sortSeen ?? []), ...captains], cur: { ...cur, teams, captains }, deadline: now + secs * 1000, span: secs });
         } else if (cur.type === "spiked") {
           await set("input", room.round, { ...st, cur: { ...cur, spiked: spikedPick(live.players) }, deadline: now + timer, span: timer / 1000 });
+        } else if (cur.type === "kings") {
+          const order = shuffle(live.players.map((p) => p.id));
+          await set("kings", room.round, { ...st, cur: { ...cur, order, t: 0, beat: 0, step: "draw", drawer: order[0], kings: 0, log: [] }, deadline: now + KINGS_DRAW_S * 1000, span: KINGS_DRAW_S });
+        } else if (cur.type === "bomb") {
+          const fuse = now + (BOMB_MIN_S + Math.random() * (BOMB_MAX_S - BOMB_MIN_S)) * 1000;
+          await set("bomb", room.round, { ...st, deadline: null, cur: { ...cur, holder: shuffle(live.players)[0].id, fuse, beat: 0, used: [], passes: [] } });
+        } else if (cur.type === "tele") {
+          const order = shuffle(live.players.map((p) => p.id));
+          const secs = teleSecs(0, timer);
+          await set("tele", room.round, { ...st, cur: { ...cur, order, steps: Math.min(order.length, 4), step: 0 }, deadline: now + secs * 1000, span: secs });
+        } else if (cur.type === "fast") {
+          await set("fast", room.round, { ...st, deadline: null, cur: { ...cur, q: cur.qs[0], ends: fastEnds(cur.qs[0], now) } });
         } else if (cur.type === "hot") {
           const victim = hotVictim(live.players, st.hotSeen);
           await set("input", room.round, { ...st, hotSeen: [...(st.hotSeen ?? []), victim], cur: { ...cur, victim }, deadline: now + timer, span: timer / 1000 });
@@ -294,6 +322,25 @@ export async function startHost(app) {
         await finishRule(room, st);
       } else if (room.phase === "match" && (now >= st.deadline || (allIn("match", cur, live.players, live.subs) && (cur.type !== "rap" || !gm.busy())))) {
         await nextMatch(room, st, { ...cur, br: brawlRecord(cur.br, cur.match, live.subs) });
+      } else if (room.phase === "kings") {
+        await stepKings(room, st, cur, now);
+      } else if (room.phase === "bomb") {
+        await stepBomb(room, st, cur, now);
+      } else if (room.phase === "tele" && (now >= st.deadline || allIn("tele", cur, live.players, live.subs))) {
+        if (cur.step + 1 < cur.steps) {
+          const step = cur.step + 1;
+          const secs = teleSecs(step, timer);
+          await set("tele", room.round, { ...st, cur: { ...cur, step }, deadline: now + secs * 1000, span: secs });
+        } else await set("teleshow", room.round, { ...st, cur: { ...cur, chains: teleChains(cur.order, cur.steps), show: 0 }, until: now + teleShowMs(cur) });
+      } else if (room.phase === "teleshow" && ready(st.until, now)) {
+        // Replay the chains one at a time, then vote for the best.
+        if (cur.show + 1 < cur.chains.length) await set("teleshow", room.round, { ...st, cur: { ...cur, show: cur.show + 1 }, until: now + teleShowMs(cur) });
+        else if (cur.chains.length >= 2) await set("vote", room.round, { ...st, deadline: now + voteTime, span: voteTime / 1000 });
+        else await reveal(room, st, cur);
+      } else if (room.phase === "fast" && (now >= cur.ends || allIn("fast", cur, live.players, live.subs))) {
+        const nextQ = cur.qs[cur.q.i + 1];
+        if (nextQ) await set("fast", room.round, { ...st, cur: { ...cur, q: nextQ, ends: fastEnds(nextQ, now) } });
+        else await reveal(room, st, cur);
       } else if (room.phase === "reveal" && ready(st.until, now)) {
         await set("scores", room.round, { ...st, until: now + SCORES_MS });
       } else if (room.phase === "scores" && now >= st.until) {
@@ -306,6 +353,80 @@ export async function startHost(app) {
     } finally {
       busy = false;
     }
+  }
+
+  const teleSecs = (step, timer) => (step === 0 ? Math.max(45, timer / 1000) : step % 2 ? TELE_DRAW_S : TELE_DESCRIBE_S);
+  const teleShowMs = (cur) => 2500 + cur.steps * TELE_SHOW_MS;
+  const fastEnds = (q, now) => now + q.delay + (q.trap ? FAST_TRAP_MS : FAST_WINDOW_MS) + FAST_SLACK_MS;
+  const nameOf = (id) => live.players.find((p) => p.id === id)?.name;
+
+  // Kings Cup: draw a card, do what it says (pick someone, race to tap, write a rule…), next player.
+  async function stepKings(room, st, cur, now) {
+    const mine = live.subs.filter((x) => x.kind === `m${cur.beat}`);
+    if (cur.step === "draw") {
+      // Too slow to draw? The Landlord draws for them.
+      if (now < st.deadline && !mine.some((x) => x.player_id === cur.drawer)) return;
+      const card = cur.deck[cur.t];
+      const act = kingsRule(card).act;
+      const secs = { pick: KINGS_PICK_S, mate: KINGS_PICK_S, loser: KINGS_GAME_S, rule: KINGS_RULE_S, tap: KINGS_TAP_S }[act] ?? KINGS_CARD_S;
+      const extra = card.rank === "9" ? { word: cur.rhymes[cur.t % cur.rhymes.length] }
+        : card.rank === "10" ? { word: cur.cats[cur.t % cur.cats.length] }
+        : card.rank === "J" ? { options: shuffle(RULES).slice(0, 4) } : {};
+      return set("kings", room.round, { ...st, cur: { ...cur, ...extra, card, step: act ?? "card", beat: cur.beat + 1 }, deadline: now + secs * 1000, span: secs });
+    }
+    const done = cur.step === "card" ? ready(st.deadline, now) : now >= st.deadline || allIn("kings", cur, live.players, live.subs);
+    if (!done) return;
+    const out = kingsOutcome(cur, mine, live.players, (id) => nameOf(id) ?? "Someone");
+    if (cur.card.rank === "J" && !out.rule) out.rule = cur.options?.[0] ?? shuffle(RULES)[0];
+    const next = { ...st };
+    if (out.mate) next.buddies = [...(st.buddies ?? []), out.mate];
+    // A new Question Master or Thumb Master takes the job from the last one.
+    const role = { Q: "qm", 5: "thumb" }[cur.card.rank];
+    if (out.rule) next.rules = [...(st.rules ?? []).filter((r) => r.until > st.idx && (!role || r.role !== role)), { text: out.rule, by: cur.drawer, until: st.idx + 1 + RULE_ROUNDS, role }];
+    const entry = { t: cur.t, card: cur.card, drawer: cur.drawer, ...out };
+    const log = [...cur.log, entry];
+    const said = kingsText(entry);
+    if (said && cur.card.rank !== "K") gm.say(said);
+    const t = cur.t + 1;
+    if (out.kings >= 4 || t >= cur.deck.length) return reveal(room, next, { ...cur, log, kings: out.kings, step: "done" });
+    const ids = cur.order.filter((id) => live.players.some((p) => p.id === id));
+    if (!ids.length) return reveal(room, next, { ...cur, log, kings: out.kings, step: "done" });
+    return set("kings", room.round, {
+      ...next, cur: { ...cur, log, kings: out.kings, t, drawer: ids[t % ids.length], step: "draw", beat: cur.beat + 1, card: null, last: entry },
+      deadline: now + KINGS_DRAW_S * 1000, span: KINGS_DRAW_S,
+    });
+  }
+
+  // What happened on a Kings Cup card, in words (for the TV and the Landlord).
+  function kingsText(e) {
+    if (!e) return "";
+    const byPid = {};
+    for (const d of e.drinks ?? []) byPid[d.pid] = (byPid[d.pid] ?? 0) + d.sips;
+    const all = live.players.length > 1 && live.players.every((p) => byPid[p.id]);
+    const drinks = all ? "Everybody drinks!" : Object.entries(byPid).map(([pid, n]) => `${nameOf(pid) ?? "Someone"} drinks ${n}.`).join(" ");
+    if (e.rank === "K") return e.kings >= 4 ? `That's the fourth king! ${nameOf(e.drawer) ?? "Someone"}, down the King's Cup!` : `King number ${e.kings}. Pour some in the cup.`;
+    if (e.mate) return `${nameOf(e.mate.b) ?? "Someone"} is now ${nameOf(e.mate.a) ?? "someone"}'s mate. Drink together, suffer together.`;
+    if (e.rule) return `New house rule: ${e.rule}`;
+    return drinks;
+  }
+
+  // Hot Potato Bomb: the holder names something to pass it on; the fuse is secret.
+  async function stepBomb(room, st, cur, now) {
+    if (now >= cur.fuse) return reveal(room, st, { ...cur, boom: cur.holder });
+    const ids = live.players.map((p) => p.id);
+    if (!ids.includes(cur.holder)) return set("bomb", room.round, { ...st, cur: { ...cur, holder: shuffle(ids)[0], beat: cur.beat + 1 } });
+    const sub = live.subs.find((x) => x.kind === `m${cur.beat}` && x.player_id === cur.holder);
+    if (!sub) return;
+    const text = String(sub.value?.text ?? "").trim().slice(0, 40);
+    const key = norm(text);
+    if (!key || cur.used.includes(key)) return set("bomb", room.round, { ...st, cur: { ...cur, beat: cur.beat + 1, last: { pid: cur.holder, text, ok: false } } });
+    // Pass it to someone else (not straight back, if there's a choice).
+    const others = ids.filter((id) => id !== cur.holder);
+    const pool = others.filter((id) => id !== cur.prev);
+    const holder = shuffle(pool.length ? pool : others)[0] ?? cur.holder;
+    return set("bomb", room.round, {
+      ...st, cur: { ...cur, holder, prev: cur.holder, beat: cur.beat + 1, used: [...cur.used, key], passes: [...cur.passes, { pid: cur.holder, text }], last: { pid: cur.holder, text, ok: true } },
+    });
   }
 
   // Knockout bracket (Pub Brawl answers / Tee K.O. shirts): one match per phase until a champion.
@@ -433,10 +554,37 @@ export async function startHost(app) {
           spiked: "Right. Read the answers. Who's been spiked?",
           job: "Who gets the job? Vote now.",
           poll: `${nameOf(cur.pollster) ?? "The pollster"} says ${cur.guess} percent. Higher, or lower?`,
+          tele: "Vote for the best chain.",
         };
         gm.say(lines[cur.type] ?? "Right. Vote for the least disappointing one.", { caption: false });
         break;
       }
+      case "kings":
+        if (cur.step === "draw") gm.say(`${nameOf(cur.drawer) ?? "Someone"}, draw a card.`, { caption: false });
+        else if (cur.card) {
+          const r = kingsRule(cur.card);
+          const word = cur.card.rank === "9" ? ` The word is: ${cur.word}.` : cur.card.rank === "10" ? ` The category is: ${cur.word}.` : "";
+          gm.say(`${r.name}! ${r.rule}${word}`, { caption: false });
+        }
+        break;
+      case "bomb":
+        if (!cur.beat) gm.say(`The category is: ${cur.prompt}. ${nameOf(cur.holder) ?? "Someone"} has the bomb. Pass it before it blows!`, { caption: false });
+        break;
+      case "tele":
+        gm.say(["Write something for someone to draw. Make it weird.", "Now draw what you've been given. No words!", "Now describe the drawing you've been given.", "Draw it again. Good luck."][cur.step] ?? "Keep going.", { caption: false });
+        break;
+      case "teleshow": {
+        const ch = cur.chains?.[cur.show];
+        const textOf = (e) => live.subs.find((x) => x.kind === `m${e.step}` && x.player_id === e.pid)?.value?.text;
+        const texts = (ch?.entries ?? []).filter((e) => e.step % 2 === 0).map((e) => ({ e, text: textOf(e) }));
+        const first = texts[0];
+        const last = texts.length > 1 ? texts[texts.length - 1] : null;
+        if (first?.text) gm.say(`${nameOf(first.e.pid) ?? "Someone"} wrote: ${first.text}.${last?.text ? ` And by the end, it had become: ${last.text}.` : ""}`, { caption: false });
+        break;
+      }
+      case "fast":
+        if (cur.q?.i === 0) gm.say("Tap your phone when you see the beer. Only the beer.", { caption: false });
+        break;
       case "match":
         if (cur.type === "rap" && cur.match) {
           // The Landlord raps both verses (deadpan), then the room votes.
@@ -580,6 +728,25 @@ export async function startHost(app) {
       case "rap":
         vars = { winner: nameOf(v.champion?.pid), name: nameOf(v.history?.[0]?.loser) };
         break;
+      case "kings": {
+        const fourth = (v.log ?? []).find((e) => e.rank === "K" && e.kings >= 4);
+        if (fourth) vars = { name: nameOf(fourth.drawer) };
+        else key = "drink";
+        if (key === "drink") vars = { name: any(drinking()) };
+        break;
+      }
+      case "bomb":
+        vars = { name: nameOf(cur.boom) };
+        break;
+      case "tele": {
+        const votes = v.votes ?? [];
+        const top = Math.max(0, ...votes.map((g) => g.length));
+        vars = { winner: top ? nameOf(cur.chains?.[votes.findIndex((g) => g.length === top)]?.entries?.[0]?.pid) : null };
+        break;
+      }
+      case "fast":
+        vars = { name: any([...drinking("Slowest finger"), ...drinking("Fell for the trap")]) };
+        break;
       case "sti": {
         const top = (v.results ?? []).find((x) => x.winner);
         vars = { winner: nameOf(top?.pid), victim: nameOf(top?.from), name: any(drinking("Zero votes")) };
@@ -623,7 +790,8 @@ export async function startHost(app) {
         // Fast-forward whatever is on screen (and shut the Landlord up).
         gm.stop();
         const st = live.room.state;
-        await set(live.room.phase, live.room.round, { ...st, deadline: 0, until: 0 });
+        const cur = st.cur ? { ...st.cur, ...(st.cur.fuse ? { fuse: 0 } : {}), ...(st.cur.ends ? { ends: 0 } : {}) } : st.cur;
+        await set(live.room.phase, live.room.round, { ...st, cur, deadline: 0, until: 0 });
       } else if (act === "end") {
         // Finish early: skip the remaining rounds and go straight to the final scores.
         if (!confirm("End the game now and show the final scores?")) return;
@@ -661,6 +829,9 @@ export async function startHost(app) {
   const joinUrl = `${location.origin}${location.pathname}?room=${code}`;
   const toggle = (key, on, off = "Off") =>
     `<button class="pill ${settings[key] ? "on" : ""}" data-act="${key}">${settings[key] ? on : off}</button>`;
+
+  const room = () => live.room;
+  const fastSeen = {};
 
   function render() {
     const room = live.room;
@@ -745,6 +916,11 @@ export async function startHost(app) {
       case "rule":
       case "hol":
       case "buddy":
+      case "kings":
+      case "bomb":
+      case "tele":
+      case "teleshow":
+      case "fast":
       case "match": {
         const { kind, ids } = expected(room.phase, cur, live.players);
         const who = live.players.filter((p) => ids.includes(p.id));
@@ -786,6 +962,7 @@ export async function startHost(app) {
     }
     app.innerHTML = `<div class="host">${header}<main>${body}</main>${room.phase === "lobby" ? "" : rulesBanner(st)}${controls}</div>`;
 
+    armFast(fastSeen, `${room.round}:${cur.q?.i}`);
     const qr = $("#qr");
     if (qr && window.qrcode) {
       const q = window.qrcode(0, "M");
@@ -924,10 +1101,69 @@ export async function startHost(app) {
   // A rap verse: the opening line plus the player's line.
   const verse = (e) => `<div class="verse"><span class="verse-open">${esc(e.opener?.line ?? "")}</span><span class="verse-line">${esc(e.text)}</span></div>`;
 
+  // Pub Telephone: one entry of a chain (a line of text or a drawing), looked up from this round's answers.
+  function teleEntry(e, byId, delay = 0) {
+    const v = live.subs.find((x) => x.kind === `m${e.step}` && x.player_id === e.pid)?.value;
+    const img = safeImg(v?.img);
+    const body = e.step % 2 ? (img ? `<img src="${img}" alt="A drawing">` : `<p class="muted">(no drawing)</p>`) : `<p class="tele-text">${v?.text ? `“${esc(v.text)}”` : `<span class="muted">(nothing)</span>`}</p>`;
+    return `<div class="tele-entry pop ${e.step % 2 ? "draw" : "write"}" style="animation-delay:${delay}ms"><div class="tele-by">${e.step % 2 ? "🎨" : "✍️"} ${chip(byId[e.pid])}</div>${body}</div>`;
+  }
+  const TELE_STEPS = ["✍️ Write", "🎨 Draw", "🔎 Describe", "🎨 Draw again"];
+
+  // The Kings Cup table: the cup, the card, and what's going on.
+  function kingsTable(cur, byId) {
+    const name = (id) => esc(byId[id]?.name ?? "?");
+    const k = cur.kings ?? 0;
+    const cup = `<div class="kings-cup"><div class="cup" style="--k:${k}"><div class="cup-fill"></div></div>
+      <div class="cup-crowns">${"👑".repeat(k)}<span class="muted">${"♔".repeat(4 - k)}</span></div><small>King's Cup · ${k}/4 kings</small></div>`;
+    const left = `<div class="kings-left"><div class="pcard-stack">${playingCard(null, "sm")}</div><small>${cur.deck.length - cur.t} card${cur.deck.length - cur.t === 1 ? "" : "s"} left</small></div>`;
+    let info;
+    if (cur.step === "draw")
+      info = `<div class="spotlight pop">${avatar(byId[cur.drawer], "xl")}<div>${name(cur.drawer)}, draw a card!</div></div>
+        ${cur.last ? `<p class="kings-last">Last card: <b>${esc(cur.last.card.rank + cur.last.card.suit)} ${esc(cur.last.name)}</b> — ${esc(kingsText(cur.last))}</p>` : `<p class="kicker">Tap “Draw a card” on your phone.</p>`}`;
+    else {
+      const r = KINGS_RULES[cur.card.rank];
+      const waiting = { pick: `${name(cur.drawer)} is choosing who drinks…`, mate: `${name(cur.drawer)} is choosing a mate…`, loser: `Go round the room! Then ${name(cur.drawer)} picks who fluffed it.`,
+        rule: `${name(cur.drawer)} is writing a house rule…`, tap: "EVERYONE: TAP YOUR PHONE!" }[cur.step] ?? "";
+      info = `<h1 class="kings-name">${esc(r.name)}</h1><p class="rules">${esc(r.rule)}</p>
+        ${cur.word ? `<div class="kings-word pop">${esc(cur.word)}</div>` : ""}
+        <p class="kicker">${waiting}</p><p class="muted">Drawn by ${chip(byId[cur.drawer])}</p>`;
+    }
+    return `<div class="kings-table">${cup}<div class="kings-card">${playingCard(cur.step === "draw" ? null : cur.card, `big ${cur.step === "draw" ? "" : "flip"}`)}</div>
+      <div class="kings-info">${info}</div>${left}</div>`;
+  }
+
   // The TV while phones are busy, for the newer games (null = not one of these).
   function newGameStage(phase, cur, byId) {
     const name = (id) => esc(byId[id]?.name ?? "?");
     switch (cur.type) {
+      case "kings":
+        return phase === "kings" ? kingsTable(cur, byId) : null;
+      case "bomb":
+        if (phase !== "bomb") return null;
+        return `<div class="bomb-stage"><p class="rap-label">The category</p><h1 class="prompt">${esc(cur.prompt)}</h1>
+          <div class="bomb-row"><div class="bomb-big">💣</div><div class="spotlight pop">${avatar(byId[cur.holder], "xl")}<div>${name(cur.holder)} has the bomb!</div></div></div>
+          ${cur.last ? `<p class="kicker">${cur.last.ok ? `✅ ${name(cur.last.pid)}: “${esc(cur.last.text)}”` : `❌ ${name(cur.last.pid)}: “${esc(cur.last.text)}” — already said! Try again!`}</p>` : `<p class="kicker">Name one on your phone to pass it on. No repeats!</p>`}
+          <div class="bomb-used">${(cur.passes ?? []).map((x) => `<span class="used">${esc(x.text)}</span>`).join("")}</div></div>`;
+      case "tele":
+        if (phase === "tele")
+          return `<div class="tele-board pop"><div class="tele-steps">${Array.from({ length: cur.steps }, (_, s) => `<span class="tele-step ${s === cur.step ? "on" : s < cur.step ? "done" : ""}">${TELE_STEPS[s]}</span>`).join("")}</div>
+            <h1 class="prompt">${["Write something for someone to draw", "Draw what you've been given", "What on earth is that? Describe it", "Draw it again!"][cur.step]}</h1>
+            <p class="kicker">${cur.step === 0 ? "The weirder the better. It's going round the room…" : cur.step % 2 ? "No words or letters! Just draw." : "Say what you see. No peeking at anyone else's phone."}</p></div>`;
+        if (phase === "teleshow") {
+          const ch = cur.chains[cur.show];
+          return `<p class="rap-label">Chain ${cur.show + 1} of ${cur.chains.length}</p>
+            <div class="tele-chain">${ch.entries.map((e, i) => (i ? `<div class="tele-arrow pop" style="animation-delay:${i * TELE_SHOW_MS * 0.8 - 300}ms">➜</div>` : "") + teleEntry(e, byId, i * TELE_SHOW_MS * 0.8)).join("")}</div>`;
+        }
+        if (phase === "vote")
+          return `<p class="kicker">Which chain was best? Vote on your phone!</p>
+            <div class="tele-votes">${cur.chains.map((ch) => `<div class="tele-sum pop"><b>Chain ${ch.c + 1}</b>${teleEntry(ch.entries[0], byId)}<div class="tele-arrow">⬇</div>${teleEntry(ch.entries[ch.entries.length - 1], byId)}</div>`).join("")}</div>`;
+        return null;
+      case "fast":
+        if (phase !== "fast") return null;
+        return `<p class="muted">Test ${cur.q.i + 1} of ${cur.qs.length}</p>
+          <div class="fast-pad tv ${cur.q.trap ? "trap" : ""}" data-delay="${cur.q.delay}" data-key="${room().round}:${cur.q.i}"><span class="wait">WAIT FOR IT…</span><span class="goemoji">${cur.q.emoji}</span></div>
+          <p class="kicker">Tap your phone when you see the 🍺 — and ONLY the 🍺!</p>`;
       case "poll":
         if (phase === "input")
           return `<div class="poll-board"><div class="poll-head">📊 THE PUB POLL</div><h1 class="prompt">${esc(cur.prompt)}</h1>
@@ -1193,6 +1429,30 @@ export async function startHost(app) {
             <span class="voters">${Math.max(h.va.length, h.vb.length)}–${Math.min(h.va.length, h.vb.length)}</span></div>`).join("")}</div></div>`;
         break;
       }
+      case "kings":
+        main = `<div class="kings-log">${(v.log ?? []).map((e, i) => `<div class="kings-log-row pop" style="animation-delay:${i * 100}ms">${playingCard(e.card, "xs")}
+          <b>${esc(e.name)}</b> <span>${chip(byId[e.drawer])}</span> <span class="muted">${esc(kingsText(e))}</span></div>`).join("")}</div>`;
+        break;
+      case "bomb":
+        main = `<div class="bomb-stage"><div class="boom pop">💥</div>
+          <div class="spotlight pop">${avatar(byId[cur.boom], "xl")}<div>BOOM! ${name(cur.boom)} was holding it!</div></div>
+          <p class="kicker">${esc(cur.prompt)}: ${(v.passes ?? []).length} answer${(v.passes ?? []).length === 1 ? "" : "s"} before it blew</p>
+          <div class="bomb-used">${(v.passes ?? []).map((x) => `<span class="used">${esc(x.text)} <small>${name(x.pid)}</small></span>`).join("")}</div></div>`;
+        break;
+      case "tele": {
+        const votes = v.votes ?? [];
+        const top = Math.max(0, ...votes.map((g) => g.length));
+        main = `<div class="tele-votes">${(cur.chains ?? []).map((ch, c) => `<div class="tele-sum pop ${top && votes[c]?.length === top ? "win" : ""}">
+          <b>Chain ${c + 1} · ${votes[c]?.length ?? 0} vote${votes[c]?.length === 1 ? "" : "s"} ${top && votes[c]?.length === top ? "👑" : ""}</b>
+          ${teleEntry(ch.entries[0], byId)}<div class="tele-arrow">⬇</div>${teleEntry(ch.entries[ch.entries.length - 1], byId)}</div>`).join("")}</div>`;
+        break;
+      }
+      case "fast":
+        main = `<div class="tally">${(v.results ?? []).map((q) => `<div class="tally-row fast-row"><span class="fast-emoji">${esc(q.emoji)}</span>
+          ${q.trap ? `<span>TRAP! ${q.taps.length ? `Fell for it: ${q.taps.map((t) => chip(byId[t.pid])).join("")}` : "Nobody fell for it 👏"}</span>`
+            : `<span>${q.taps.map((t, i) => `${chip(byId[t.pid])} <b>${t.ms} ms</b>${i === 0 ? " ⚡" : ""}`).join(" · ") || "Nobody tapped!"}</span>`}
+          ${q.early.length ? `<span class="muted">Too soon: ${q.early.map(name).join(", ")}</span>` : ""}</div>`).join("")}</div>`;
+        break;
       case "hol":
         main = `<div class="tally">${(v.results ?? []).map((q) => `<div class="tally-row hol-row"><span class="hot-q">${esc(q.q)}: ${q.answer === "higher" ? "⬆️ HIGHER" : "⬇️ LOWER"} than ${esc(q.than)} <small class="muted">(${esc(q.fact)})</small></span>
           <span>✅ ${q.right.map(name).join(", ") || "nobody"}</span><span>❌ ${q.wrong.map(name).join(", ") || "nobody"}</span></div>`).join("")}</div>`;
@@ -1239,7 +1499,8 @@ export async function startHost(app) {
     const sig = JSON.stringify([l.room, l.players, l.subs.map((s) => s.player_id + s.kind)]);
     if (sig !== lastSig) render();
     lastSig = sig;
-    const phaseKey = l.room && `${l.room.phase}:${l.room.round}:${l.room.state?.cur?.match?.m ?? ""}:${l.room.state?.cur?.q?.i ?? ""}`;
+    const c = l.room?.state?.cur;
+    const phaseKey = l.room && `${l.room.phase}:${l.room.round}:${c?.match?.m ?? ""}:${c?.q?.i ?? ""}:${c?.beat ?? ""}:${c?.show ?? ""}:${c?.step ?? ""}`;
     if (lastPhase !== null && phaseKey !== lastPhase && l.room) announce(l.room);
     lastPhase = phaseKey;
     step();

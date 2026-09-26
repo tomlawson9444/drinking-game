@@ -505,3 +505,89 @@ code { background: var(--card); padding: 2px 6px; border-radius: 6px; }
 @media (max-width: 760px) {
   .sort-board, .rap-versus { grid-template-columns: 1fr; }
 }
+
+/* ---------- Kings Cup ---------- */
+.pcard { --w: 110px; width: var(--w); aspect-ratio: 5 / 7; border-radius: calc(var(--w) * 0.08); background: #fff; color: #1a0b2e; position: relative; display: grid; place-items: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); border: 3px solid #fff; flex: none; font-family: Georgia, serif; }
+.pcard.red { color: #d62246; }
+.pcard.back { background: repeating-linear-gradient(45deg, #b3123a 0 10px, #8f0e2e 10px 20px); border-color: #fff; }
+.pcard.back span { font-size: calc(var(--w) * 0.35); filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.4)); }
+.pcard .pc-mid { font-size: calc(var(--w) * 0.5); }
+.pcard .pc-corner { position: absolute; top: 6%; left: 8%; font-weight: 900; font-size: calc(var(--w) * 0.17); line-height: 1; }
+.pcard .pc-corner.br { top: auto; left: auto; bottom: 6%; right: 8%; transform: rotate(180deg); }
+.pcard.big { --w: clamp(150px, 18vw, 260px); }
+.pcard.mid { --w: 96px; }
+.pcard.sm { --w: 64px; }
+.pcard.xs { --w: 40px; border-width: 2px; }
+.pcard.flip { animation: flip 0.6s ease-out; }
+@keyframes flip { from { transform: rotateY(90deg) scale(0.8); } to { transform: rotateY(0) scale(1); } }
+.kings-table { display: grid; grid-template-columns: auto auto 1fr auto; gap: clamp(16px, 3vw, 44px); align-items: center; max-width: 1500px; margin: 0 auto;
+  background: radial-gradient(ellipse at center, #1f6b3a, #0f3d20); border: 8px solid #6b3f1d; border-radius: 40px; padding: clamp(18px, 3vw, 40px); box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.5), 0 16px 50px rgba(0, 0, 0, 0.5); text-align: left; }
+.kings-cup { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.cup { width: clamp(80px, 9vw, 130px); height: clamp(100px, 11vw, 160px); border: 6px solid #e8d8b0; border-top: 0; border-radius: 0 0 40% 40%; position: relative; overflow: hidden; background: rgba(255, 255, 255, 0.08); }
+.cup-fill { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--k) * 25%); background: linear-gradient(#ffcf4a, #c77d00); transition: height 1s; }
+.cup-crowns { font-size: clamp(1.1rem, 2vw, 1.6rem); letter-spacing: 2px; }
+.kings-left { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.kings-name { font-family: var(--display); color: var(--beer); font-size: clamp(2rem, 5vw, 4rem); margin: 0; }
+.kings-info .rules { font-size: clamp(1.1rem, 2.2vw, 1.7rem); text-align: left; margin: 8px 0; }
+.kings-info .spotlight { align-items: flex-start; }
+.kings-word { display: inline-block; font-family: var(--display); background: #fff7e8; color: #1a0b2e; border-radius: 12px; padding: 8px 20px; font-size: clamp(1.6rem, 4vw, 3rem); }
+.kings-word.sm { font-size: 1.4rem; padding: 4px 12px; }
+.kings-last { font-size: clamp(1rem, 2vw, 1.5rem); background: rgba(0, 0, 0, 0.3); border-radius: 12px; padding: 10px 14px; }
+.kings-log { display: flex; flex-direction: column; gap: 8px; max-width: 1000px; margin: 0 auto; text-align: left; }
+.kings-log-row { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 12px; padding: 6px 12px; font-size: clamp(1rem, 1.8vw, 1.3rem); }
+.kings-phone { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; }
+.kings-phone h2 { margin: 0; color: var(--beer); }
+.pcard-btn { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 16px auto; background: none; border: 0; cursor: pointer; font-weight: 900; font-size: 1.3rem; }
+.pcard-btn .pcard { animation: wobble 1.6s ease-in-out infinite; }
+.fast-tap-btn { width: 100%; min-height: 220px; border: 0; border-radius: 28px; background: var(--hot); color: #fff; font-family: var(--display); font-size: 2.4rem; box-shadow: 0 10px 0 #a3163c; cursor: pointer; touch-action: manipulation; }
+.fast-tap-btn:active { transform: translateY(6px); box-shadow: 0 4px 0 #a3163c; }
+
+/* ---------- Hot Potato Bomb ---------- */
+.bomb-stage { max-width: 1300px; margin: 0 auto; }
+.bomb-row { display: flex; align-items: center; justify-content: center; gap: clamp(20px, 5vw, 80px); flex-wrap: wrap; }
+.bomb-big { font-size: clamp(6rem, 14vw, 12rem); animation: tick 0.5s ease-in-out infinite; filter: drop-shadow(0 0 30px rgba(255, 79, 121, 0.7)); }
+.bomb-phone .bomb-big { font-size: 6rem; }
+@keyframes tick { 0%, 100% { transform: rotate(-8deg) scale(1); } 50% { transform: rotate(8deg) scale(1.08); } }
+.boom { font-size: clamp(7rem, 16vw, 14rem); animation: pop 0.4s ease-out, shake 0.5s 0.4s 3; }
+.bomb-used { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+.used { background: var(--card); border: 2px solid var(--line); border-radius: 999px; padding: 4px 12px; font-weight: 800; }
+.used small { color: var(--muted); }
+.bomb-phone { text-align: center; }
+.bomb-phone h2 { color: var(--hot); font-family: var(--display); }
+.bad { color: var(--hot); font-weight: 900; text-align: center; }
+
+/* ---------- Pub Telephone ---------- */
+.tele-board { background: #fffdf5; color: #1a0b2e; border-radius: 22px; padding: clamp(18px, 3vw, 40px); max-width: 1100px; margin: 0 auto; box-shadow: 0 16px 50px rgba(0, 0, 0, 0.5); }
+.tele-board .kicker { color: #6b5a86; }
+.tele-steps { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.tele-step { border-radius: 999px; padding: 6px 14px; background: #e6e0f0; font-weight: 900; font-size: clamp(0.9rem, 1.6vw, 1.2rem); }
+.tele-step.on { background: var(--hot); color: #fff; }
+.tele-step.done { background: var(--cool); color: #1a0b2e; }
+.tele-chain { display: flex; align-items: center; justify-content: center; gap: clamp(6px, 1vw, 14px); flex-wrap: wrap; max-width: 1600px; margin: 0 auto; }
+.tele-entry { background: #fffdf5; color: #1a0b2e; border-radius: 16px; padding: 10px; width: clamp(180px, 20vw, 300px); box-shadow: 0 8px 0 rgba(0, 0, 0, 0.3); }
+.tele-entry img { width: 100%; border-radius: 8px; display: block; background: #fff; }
+.tele-text { font-size: clamp(1.1rem, 2vw, 1.6rem); font-weight: 900; margin: 8px 4px; }
+.tele-by { margin-bottom: 6px; }
+.tele-arrow { font-size: clamp(1.5rem, 3vw, 2.5rem); color: var(--beer); }
+.tele-votes { display: flex; gap: clamp(10px, 2vw, 24px); justify-content: center; flex-wrap: wrap; }
+.tele-sum { display: flex; flex-direction: column; align-items: center; gap: 6px; background: var(--card); border-radius: 18px; padding: 12px; }
+.tele-sum .tele-entry { width: clamp(150px, 15vw, 220px); }
+.tele-sum.win { outline: 5px solid var(--beer); }
+
+/* ---------- Fastest Finger ---------- */
+.fast-pad { display: grid; place-items: center; width: 100%; min-height: 60vh; border: 0; border-radius: 32px; background: #b3123a; color: #fff; cursor: pointer; touch-action: manipulation;
+  font-family: var(--display); font-size: 2rem; box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.35); user-select: none; -webkit-user-select: none; }
+.fast-pad.tv { min-height: 50vh; max-width: 1100px; margin: 0 auto; font-size: clamp(2rem, 5vw, 4rem); }
+.fast-pad .goemoji { display: none; font-size: clamp(6rem, 18vw, 14rem); }
+.fast-pad.go { background: #1a8f4c; }
+.fast-pad.go.trap { background: #3a4a6b; }
+.fast-pad.go .wait { display: none; }
+.fast-pad.go .goemoji { display: block; animation: pop 0.2s ease-out; }
+.fast-emoji { font-size: 2rem; }
+
+@media (max-width: 760px) {
+  .kings-table { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+}
+.tally-row.fast-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.tally:has(.fast-row) { max-width: 1100px; }

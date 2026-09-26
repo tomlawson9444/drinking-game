@@ -72,6 +72,10 @@ Pick the **Game** in the lobby:
 | 💼 **Bullsh\*t Interview** *(Job Job)* | Answer an icebreaker in full sentences, then build a job-interview answer by tapping word tiles taken from everyone else's answers | Zero votes: 2 sips. Whoever supplied the winning answer's words gets a cut |
 | 🔢 **Pub Sort** *(Quixort)* | Red team vs blue team: each captain puts five things in order (years, heights, strengths…) while their team shouts at them | Losing team drinks 2 · dead heat: everyone drinks 1 |
 | 🎤 **Rap Battle** *(Mad Verse City)* | Finish your opening line with a rhyme; the Landlord raps each head-to-head out loud and the room votes, knockout-style | Every knocked-out rapper drinks 1. Champion +500 |
+| 👑 **Kings Cup** *(Ring of Fire)* | Take turns drawing a card on your phone and obey it: 2 is "you" (pick who drinks), 3 is "me", 4 floor and 7 heaven (everyone taps, slowest drinks), 8 is "mate" (chains a drinking buddy), 9 rhyme, 10 categories, Jack makes a house rule, Queen is question master. Kings go in the cup | The 4th king downs the King's Cup (5 sips), plus whatever each card says |
+| 💣 **Hot Potato Bomb** | A category and a bomb with a secret fuse. Name something on your phone to pass it on, no repeats | Holding it when it explodes: 3 sips |
+| 🎨 **Pub Telephone** *(Gartic Phone)* | Write a line, the next phone draws it, the next describes the drawing, the next draws that. The TV replays every chain; vote for the best | Chain nobody votes for: its starter drinks 1 · missing your turn: 1 |
+| ⚡ **Fastest Finger** | Three reaction tests: tap the moment the 🍺 appears. Some tests are traps (🥛 milk, ☕…) — don't tap! Each phone times its own tap, so wifi lag doesn't matter | Slowest, too soon, or tapping a trap: 1 sip each. Fastest +200 |
 | 🔥 **Hot Seat** | One player's in the hot seat; everyone writes them a question, they answer out loud, the rest vote truth or lie | Voted a liar: 2 sips · refusing a question: 3 |
 | 🎡 **Wheel of Doom** | The TV spins a wheel: everyone drinks, leader tax, a random victim, double points next round, waterfalls, pity points… | Whatever the wheel says |
 | 🍻 **Social** | A rule for the whole room | Whoever the rule says |
@@ -109,7 +113,7 @@ js/logic.js         round plan + scoring rules (pure, testable)
 js/gm.js            The Landlord: voice-over + captions
 js/prompts.js       prompt decks (mild + filthy) and the Landlord's lines — add your own in-jokes!
 js/prompts-extra.js extra prompt packs, merged into the decks
-js/prompts-games.js decks for Pub Poll, Spiked, Bullsh*t Interview, Pub Sort and Rap Battle
+js/prompts-games.js decks for Pub Poll, Spiked, Bullsh*t Interview, Pub Sort, Rap Battle, Kings Cup, Hot Potato Bomb, Pub Telephone
 js/cards.js         loads the Cards Against Sobriety deck (data/cah.json)
 data/cah.json       official Cards Against Humanity cards (CC BY-NC-SA 4.0)
 tools/build-cards.mjs  rebuilds data/cah.json from JSON Against Humanity
@@ -136,7 +140,7 @@ and only then repeats. On one TV that's about three weeks of nightly 15-round ga
 
 New packs can go in `js/prompts-extra.js`, which is merged into the decks automatically.
 
-The Pub Poll, Spiked, Bullsh\*t Interview, Pub Sort and Rap Battle decks live in `js/prompts-games.js`. Pub Poll
+The Pub Poll, Spiked, Bullsh\*t Interview, Pub Sort, Rap Battle, Kings Cup and Hot Potato Bomb decks live in `js/prompts-games.js`. Pub Poll
 and Pub Sort use real figures, rounded (survey results vary from study to study, so treat them as pub-quiz accurate).
 
 Edit the arrays in `js/prompts.js` (years, trivia, role sets, T-shirt ideas and Out of Context

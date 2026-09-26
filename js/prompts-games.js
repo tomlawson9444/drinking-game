@@ -320,3 +320,58 @@ export const RAP_OPENERS = [
   { line: "You brought a knife to a gunfight, you brought a shandy to a bar", rhyme: "bar" },
   { line: "I'm so good at this, I should be on telly", rhyme: "telly" },
 ];
+
+// ------------------------------------------------------------------ Kings Cup (Ring of Fire)
+// What each card means. `act` is what the phones do: pick someone, a tap race, write a rule, or nothing.
+export const KINGS_RULES = {
+  A: { name: "Waterfall", rule: "Everyone drinks! Start together; you can't stop until the person on your right stops.", act: null },
+  2: { name: "You", rule: "Pick someone to drink 2.", act: "pick" },
+  3: { name: "Me", rule: "The drawer drinks 2.", act: null },
+  4: { name: "Floor", rule: "Everyone tap FLOOR on your phone (and touch the floor!). Slowest drinks.", act: "tap", button: "👇 FLOOR!" },
+  5: { name: "Thumb Master", rule: "The drawer is Thumb Master: when they put a thumb on the table, last to copy drinks.", act: null },
+  6: { name: "Social", rule: "Cheers! Everybody drinks.", act: null },
+  7: { name: "Heaven", rule: "Everyone tap HEAVEN on your phone (and point up!). Slowest drinks.", act: "tap", button: "🙌 HEAVEN!" },
+  8: { name: "Mate", rule: "Pick a mate: they drink whenever you drink, for the rest of the game.", act: "mate" },
+  9: { name: "Rhyme", rule: "Go round the room rhyming with the word on screen. The drawer picks who fluffed it.", act: "loser" },
+  10: { name: "Categories", rule: "Go round the room naming things in the category on screen. The drawer picks who fluffed it.", act: "loser" },
+  J: { name: "Make a Rule", rule: "The drawer makes a house rule.", act: "rule" },
+  Q: { name: "Question Master", rule: "The drawer is Question Master: answer any of their questions and you drink.", act: null },
+  K: { name: "King's Cup", rule: "Pour some of your drink into the King's Cup. Whoever draws the 4th king downs it!", act: null },
+};
+export const KINGS_RHYMES = ["pint", "bar", "night", "drink", "beer", "kebab", "shot", "round", "wine", "cheers", "pub", "dance", "chips", "taxi", "Friday"];
+export const KINGS_CATEGORIES = [
+  "Beers", "Cocktails", "Crisp flavours", "Premier League clubs", "Things in a kebab shop", "Pub names", "Spice Girls songs",
+  "Things you'd find in a handbag", "Words for being drunk", "Chocolate bars", "Soap opera characters", "Takeaways",
+  "Boy bands", "Car makes", "Countries in Europe", "Harry Potter characters", "Things that are yellow", "Disney films",
+];
+
+// ------------------------------------------------------------------ Hot Potato Bomb
+export const BOMB_CATEGORIES = {
+  mild: [
+    "Beers", "Cocktails", "Crisp flavours", "Premier League clubs", "Things in a kebab shop", "Chocolate bars",
+    "Words for being drunk", "Takeaway food", "Car makes", "Countries in Europe", "Capital cities", "Disney films",
+    "Harry Potter characters", "Boy bands and girl bands", "Things that are yellow", "Supermarkets", "Breakfast cereals",
+    "Dog breeds", "Soap opera characters", "Things in a bathroom", "Board games", "Pizza toppings", "Cheeses",
+    "Christmas songs", "Things you take on holiday", "Sports", "Animals in a zoo", "Fruit", "Vegetables",
+    "Spirits (the drinking kind)", "Famous Davids", "Things with wheels", "Shops on the high street", "Card games",
+    "Things that are cold", "Types of shoe", "Pixar films", "London Underground stations", "Rappers", "Sandwich fillings",
+  ],
+  filthy: [
+    "Words for a willy", "Words for boobs", "Sex positions", "Places you've had sex", "Things in a sex shop",
+    "Chat-up lines", "Words for being horny", "Things you'd hide from your mum", "Excuses for a hangover",
+    "Things you'd shout in bed", "Words for a bum", "Dating app red flags",
+  ],
+};
+
+// ------------------------------------------------------------------ Pub Telephone
+// Placeholder ideas for the first line, if someone's stuck.
+export const TELE_IDEAS = [
+  "A pigeon robbing a Greggs", "Your nan winning a rap battle", "A horse at a job interview", "Batman stuck in a revolving door",
+  "The King doing the worm", "A kebab on its wedding day", "A shark in a hot tub", "Two ghosts on a first date",
+  "A dog driving a bus", "A snowman in a sauna", "A vicar at a rave", "A giraffe in a lift", "A toddler running a pub",
+  "A caveman using an iPhone", "A penguin at a nightclub", "Shrek at the dentist", "A granny on a skateboard",
+];
+
+// ------------------------------------------------------------------ Fastest Finger
+export const FAST_GO = "🍺";
+export const FAST_TRAPS = ["🥛", "🧃", "☕", "🚰"];
