@@ -766,8 +766,9 @@ export async function startHost(app) {
         <h1 class="prompt">${esc(cur.q.text)}</h1>
         <p class="kicker">${name(cur.victim)}, answer out loud! Everyone else: truth 😇 or lie 🤥?</p>`;
     }
-    if (phase === "twist") return `<h1 class="prompt">Everyone's been handed someone else's answer…</h1>
-      <p class="kicker">Now say where it was REALLY posted. Make it hurt.</p>`;
+    if (phase === "twist")
+      return netWindow(`<div class="net-hero"><h1>Everyone's been handed someone else's answer…</h1><p>Now say where it was <b>really</b> posted.</p></div>`,
+        "Twist someone's answer on your phone. Make it hurt. 😈", "twist");
     if (phase === "vote") {
       switch (cur.type) {
         case "fib":
@@ -779,7 +780,7 @@ export async function startHost(app) {
         case "tee":
           return `<h1 class="prompt">Make your shirt!</h1><p class="kicker">Pick a drawing and a slogan — made by your mates — on your phone.</p>`;
         case "sti":
-          return `<p class="kicker">Vote for the best twist on your phone!</p>${stiCards(cur.posts ?? [], byId, false)}`;
+          return netWindow(stiCards(cur.posts ?? [], byId, false), "Vote for the most out-of-context post on your phone!", "social-media");
         case "cards":
           return `${blackCard(cur.prompt, cur.pick)}<p class="kicker">👑 ${name(cur.czar)} is choosing…</p>
             <div class="answers">${(cur.plays ?? []).map((p, i) => `<div class="answer pop" style="animation-delay:${i * 80}ms">${filled(cur.prompt, p.cards)}</div>`).join("")}</div>`;
@@ -802,7 +803,8 @@ export async function startHost(app) {
       case "tee":
         return `<h1 class="prompt">Design a T-shirt!</h1><p class="kicker">Draw a picture and write a slogan on your phone. Everything gets mixed up later…</p>`;
       case "sti":
-        return `<h1 class="prompt">Answer your question on your phone.</h1><p class="kicker">Honestly. Innocently. What could possibly go wrong?</p>`;
+        return netWindow(`<div class="net-hero"><h1>Answer your question on your phone.</h1><p>Honestly. Innocently. What could possibly go wrong?</p></div>`,
+          "Answer honestly on your phone 📱", "welcome");
       case "imposter":
         return `<h1 class="prompt">🕵️ One of you is the imposter…</h1><p class="kicker">Check your phone for the secret word, and type a one-word clue. Imposter: blend in.</p>`;
       case "drawful":
@@ -872,14 +874,30 @@ export async function startHost(app) {
     return esc(text).replace(/___/g, () => whites[i++] ?? "___");
   }
 
-  // Out of Context posts, optionally with who wrote what and the votes.
+  // Out of Context is dressed as an old web browser (like Survive the Internet), big enough to read
+  // from the sofa: a title bar, an address bar with the room code, the page, and a banner along the bottom.
+  function netWindow(inner, banner, page) {
+    return `<div class="net-window pop">
+      <div class="net-title"><span>📱 Out of Context</span><span class="net-btns"><i>–</i><i>✕</i></span></div>
+      <div class="net-bar"><span class="net-nav">◀ ▶ ✖ ⟳ 🏠</span>
+        <div class="net-url">🌐 www.outofcontext.lol/${esc(page)}</div><div class="net-code"><small>join code</small>${code}</div></div>
+      <div class="net-body">${inner}</div>
+      ${banner ? `<div class="net-banner">${banner}</div>` : ""}
+    </div>`;
+  }
+
+  // One card per post: whose innocent answer it was, what they said, and the twist in big letters.
   function stiCards(posts, byId, reveal) {
-    return `<div class="answers results">${posts.map((x, i) => `<div class="answer post pop ${reveal && x.winner ? "win" : ""}" style="animation-delay:${i * 120}ms">
-      <div class="post-ctx">Posted as ${esc(x.context)}:</div>
-      <div class="post-q">“${esc(x.answer)}”</div>
-      <div class="a-text">${esc(x.text)}</div>
-      ${reveal ? `<div class="a-meta">Answer by ${chip(byId[x.from])} · twisted by ${chip(byId[x.pid])} <b>${x.voters.length}</b> vote${x.voters.length === 1 ? "" : "s"} ${x.winner ? "👑" : ""}</div>` : ""}
-    </div>`).join("")}</div>`;
+    const cols = posts.length > 4 ? 3 : 2;
+    return `<div class="net-grid" style="--cols:${cols}">${posts.map((x, i) => {
+      const p = byId[x.from];
+      return `<div class="net-card pop ${reveal && x.winner ? "win" : ""}" style="--c:${esc(p?.color ?? "#888")};animation-delay:${i * 120}ms">
+        <div class="net-head">${avatar(p, "net")}<div><div class="net-name">${esc(p?.name ?? "Someone")}</div><div class="net-answer">${esc(x.answer)}</div></div></div>
+        <div class="net-ctx">↳ posted as ${esc(x.context)}</div>
+        <div class="net-twist">${esc(x.text)}</div>
+        ${reveal ? `<div class="net-meta">twisted by ${chip(byId[x.pid])} · <b>${x.voters.length}</b> vote${x.voters.length === 1 ? "" : "s"} ${x.winner ? "👑" : ""}</div>` : ""}
+      </div>`;
+    }).join("")}</div>`;
   }
 
   function renderReveal(cur, info, byId) {
@@ -953,7 +971,8 @@ export async function startHost(app) {
         break;
       }
       case "sti":
-        main = (v.results ?? []).length ? stiCards(v.results, byId, true) : `<p>No twists?! Everybody drinks.</p>`;
+        main = netWindow((v.results ?? []).length ? stiCards(v.results, byId, true) : `<div class="net-hero"><h1>No twists?!</h1><p>Everybody drinks.</p></div>`,
+          (v.results ?? []).find((x) => x.winner) ? `👑 Most out of context: ${esc(byId[v.results.find((x) => x.winner).pid]?.name ?? "?")}` : "The internet has spoken.", "results");
         break;
       case "hot":
         main = `<div class="spotlight pop">${avatar(byId[cur.victim], "xl")}<div>🔥 ${name(cur.victim)}'s verdicts</div></div>

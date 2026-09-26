@@ -63,7 +63,7 @@ Pick the **Game** in the lobby:
 | 🎭 **Who's Who** *(Role Models)* | Sort your mates into a set — Spice Girls, Only Fools, night-out roles… | Whoever the group crowns the 🍺 role drinks 2; agree with nobody = 1 |
 | 🥊 **Pub Brawl** *(Bracketeering)* | Everyone answers, then answers fight head-to-head in a knockout bracket | Every knocked-out answer drinks 1. Champion +500 |
 | 👕 **Tee K.O.** | Draw a picture and write a slogan on your phone, build a shirt from your mates' work, then shirts fight in a bracket | Every knocked-out shirt's maker drinks 1 |
-| 📱 **Out of Context** *(Survive the Internet)* | Answer an innocent question; someone else reveals where it was "really posted" | Twists with zero votes drink 2 |
+| 📱 **Out of Context** *(Survive the Internet)* | Answer an innocent question; someone else reveals where it was "really posted". The TV shows it as a big retro web browser full of posts | Twists with zero votes drink 2 |
 | 🕵️ **Imposter** | Everyone gets the same secret word except the imposter (who only sees the category). Type a one-word clue, then vote them out | Caught: imposter drinks 3 · escaped: everyone else drinks 1 (imposter +300) |
 | 🎨 **What is it?** *(Drawful)* | One player draws a secret prompt; everyone else writes a fake title; spot the real one | Fooled: 1 sip · nobody gets it: the artist drinks 2 |
 | ⬆️⬇️ **Higher or Lower** | Three quick-fire questions — higher or lower than the number shown? | Each wrong answer: 1 sip · right: +100 |

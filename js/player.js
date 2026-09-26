@@ -573,7 +573,12 @@ export function startPlayer(app, me, onLeave) {
           else if (!choices.length) body = timer + lockedIn("Sit tight — nothing for you to vote on.");
           else
             body = `${timer}<p class="muted center-text">Vote for the best twist:</p>
-              <div class="choices">${choices.map((x) => `<button class="choice answer-choice" data-act="vote" data-val="${x.pid}"><small>Posted as ${esc(x.context)}:</small><br>“${esc(x.answer)}”<br><b>${esc(x.text)}</b></button>`).join("")}</div>`;
+              <div class="choices">${choices.map((x) => {
+                const p = live.players.find((q) => q.id === x.from);
+                return `<button class="choice net-card phone" data-act="vote" data-val="${x.pid}" style="--c:${esc(p?.color ?? "#888")}">
+                  <div class="net-head">${avatar(p, "sm")}<div><div class="net-name">${esc(p?.name ?? "Someone")}</div><div class="net-answer">${esc(x.answer)}</div></div></div>
+                  <div class="net-ctx">↳ posted as ${esc(x.context)}</div><div class="net-twist">${esc(x.text)}</div></button>`;
+              }).join("")}</div>`;
           break;
         }
         const fib = cur.type === "fib";
