@@ -1,9 +1,9 @@
 // Pure game rules: building the round plan and scoring a round.
 // No DOM or network here so it can be tested with plain Node.
-import { MILD, FILTHY, FIBS, YEARS, TRIVIA, ROLE_SETS, TEE_IDEAS, STI_QUESTIONS, STI_CONTEXTS, WHEEL, shuffle } from "./prompts.js";
+import { MILD, FILTHY, FIBS, YEARS, TRIVIA, ROLE_SETS, TEE_IDEAS, STI_QUESTIONS, STI_CONTEXTS, WHEEL, IMPOSTER_WORDS, DRAW_PROMPTS, HIGHER_LOWER, shuffle } from "./prompts.js";
 import { HAND_SIZE } from "./cards.js";
 
-const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, hot: 1, wheel: 1, social: 1 };
+const WEIGHTS = { quip: 3, likely: 3, fib: 2, wyr: 2, nhie: 2, year: 2, trivia: 2, roles: 2, brawl: 1, tee: 1, sti: 2, hot: 1, wheel: 1, imposter: 1, drawful: 1, hol: 2, social: 1 };
 
 // A stable key for a prompt, used to remember what a group has already played.
 export const promptKey = (p) => (typeof p === "string" ? p : Array.isArray(p) ? p.join(" / ") : p.q ?? p.title ?? p.text ?? JSON.stringify(p));
@@ -16,7 +16,10 @@ export function buildPlan(rounds, types, opts = {}) {
   // filthy pack before the mild one. Each tier is shuffled.
   const tiers = (t) => {
     const packs = { fib: [FIBS], year: [YEARS], trivia: [TRIVIA], roles: [ROLE_SETS.filter((r) => opts.filthy || !r.filthy)],
-      cards: [opts.cards?.black ?? []] }[t] ??
+      cards: [opts.cards?.black ?? []],
+      imposter: [Object.entries(IMPOSTER_WORDS).flatMap(([cat, words]) => words.map((w) => ({ q: w, cat })))],
+      drawful: opts.filthy ? [DRAW_PROMPTS.filthy, DRAW_PROMPTS.mild] : [DRAW_PROMPTS.mild],
+      hol: [HIGHER_LOWER] }[t] ??
       (opts.filthy ? [FILTHY[t], MILD[t]] : [MILD[t]]);
     const fresh = packs.map((pack) => pack.filter((p) => !seen.has(promptKey(p))));
     const stale = packs.map((pack) => pack.filter((p) => seen.has(promptKey(p))));
@@ -38,7 +41,7 @@ export function buildPlan(rounds, types, opts = {}) {
     if (!options.length) options = bag;
     const type = options[Math.floor(Math.random() * options.length)];
     // Pub Brawl answers quip prompts, so it shares the quip deck.
-    const p = ["tee", "sti", "hot", "wheel"].includes(type) ? null : draw(type === "brawl" ? "quip" : type);
+    const p = ["tee", "sti", "hot", "wheel", "hol"].includes(type) ? null : draw(type === "brawl" ? "quip" : type);
     const key = p ? promptKey(p) : null;
     if (type === "fib") plan.push({ type, prompt: p.q, truth: p.a });
     else if (type === "year") plan.push({ type, prompt: p.q, year: p.year });
@@ -53,9 +56,17 @@ export function buildPlan(rounds, types, opts = {}) {
     else if (type === "cards") plan.push({ type, prompt: p.text, pick: p.pick ?? blanks(p.text) });
     else if (type === "hot") plan.push({ type, prompt: "Hot Seat" });
     else if (type === "wheel") plan.push({ type, prompt: "Wheel of Doom" });
+    else if (type === "imposter") plan.push({ type, prompt: p.cat, word: p.q });
+    else if (type === "drawful") plan.push({ type, prompt: p });
+    else if (type === "hol") {
+      // Three quick questions per round.
+      const qs = [draw("hol"), draw("hol"), draw("hol")].map((q, i) => ({ ...q, i }));
+      plan.push({ type, prompt: "Higher or Lower", qs, keys: qs.map(promptKey) });
+    }
     else if (type === "wyr") plan.push({ type, prompt: p.map(fill) });
     else plan.push({ type, prompt: fill(p) });
     if (key) plan[plan.length - 1].key = key;
+    if (type === "hol") plan[plan.length - 1].key = plan[plan.length - 1].keys.join(" | ");
     last = type;
   }
   return plan;
@@ -68,6 +79,18 @@ export function expected(phase, round, players) {
   // Cards Against Sobriety: everyone but the Czar plays; only the Czar judges.
   if (phase === "input" && round.type === "cards") return { kind: "input", ids: players.filter((p) => p.id !== round.czar).map((p) => p.id) };
   if (phase === "vote" && round.type === "cards") return { kind: "vote", ids: players.filter((p) => p.id === round.czar).map((p) => p.id) };
+  // What is it?: the artist draws alone; everyone else writes fake titles and guesses.
+  if (round.type === "drawful") {
+    const others = players.filter((p) => p.id !== round.drawer).map((p) => p.id);
+    if (phase === "input") return { kind: "input", ids: players.filter((p) => p.id === round.drawer).map((p) => p.id) };
+    if (phase === "twist") return { kind: "twist", ids: others };
+    if (phase === "vote") return { kind: "vote", ids: others };
+  }
+  // Higher or Lower: everyone answers each question.
+  if (phase === "hol" && round.q) return { kind: `m${round.q.i}`, ids: players.map((p) => p.id) };
+  // Drinking buddy: only the round winner picks.
+  if (phase === "buddy") return { kind: "buddy", ids: players.filter((p) => p.id === round.maker).map((p) => p.id) };
+  if (phase === "vote" && round.type === "imposter") return { kind: "vote", ids: players.map((p) => p.id) };
   // Hot Seat: everyone but the victim writes a question, then votes truth/lie on each answer.
   if (phase === "input" && round.type === "hot") return { kind: "input", ids: players.filter((p) => p.id !== round.victim).map((p) => p.id) };
   if (phase === "hotq" && round.q) return { kind: `m${round.q.i}`, ids: players.filter((p) => p.id !== round.victim).map((p) => p.id) };
@@ -115,12 +138,12 @@ export function quipAnswers(subs) {
 }
 
 // Lie Detector ballot: the truth plus every distinct lie (identical lies are merged).
-export function fibOptions(subs, truth) {
+export function fibOptions(subs, truth, kind = "input") {
   const byText = new Map();
   for (const s of subs) {
     const text = String(s.value?.text ?? "").trim().slice(0, 60);
     const key = norm(text);
-    if (s.kind !== "input" || !key || key === norm(truth)) continue;
+    if (s.kind !== kind || !key || key === norm(truth)) continue;
     if (!byText.has(key)) byText.set(key, { text, pids: [], truth: false });
     byText.get(key).pids.push(s.player_id);
   }
@@ -288,6 +311,27 @@ export function discardPlays(hands, plays) {
 // Spin: which segment, plus a random victim for the segments that need one.
 export function wheelSpin(players) {
   return { index: Math.floor(Math.random() * WHEEL.length), victim: shuffle(players)[0]?.id ?? null };
+}
+
+// ------------------------------------------------------------------ Drinking buddies
+
+// Whenever a player drinks, everyone they've chained as a drinking buddy drinks the same.
+export function applyBuddies(deltas, buddies, ids) {
+  for (const { a, b } of buddies ?? []) {
+    const sips = deltas[a]?.sips ?? 0;
+    if (!sips || !ids.includes(b)) continue;
+    const d = (deltas[b] ??= { score: 0, sips: 0, why: [] });
+    d.sips += sips;
+    d.why.push("Drinking buddy");
+  }
+  return deltas;
+}
+
+// Pick which rounds of a game are buddy rounds (about a third and two-thirds of the way in).
+export function buddyRounds(plan) {
+  const n = plan.length;
+  if (n < 4) return [];
+  return [...new Set([Math.round(n * 0.3), Math.round(n * 0.65)])].filter((i) => i > 0 && i < n - 1 && plan[i].type !== "wheel" && plan[i].type !== "social");
 }
 
 // ------------------------------------------------------------------ Hot Seat
@@ -486,6 +530,62 @@ export function scoreRound(round, players, subs) {
       view.results = posts
         .map((x) => ({ ...x, voters: got[x.pid], winner: top > 0 && got[x.pid].length === top }))
         .sort((a, b) => b.voters.length - a.voters.length);
+      break;
+    }
+    case "imposter": {
+      const tally = {};
+      for (const v of votes) if (ids.includes(v.value?.target)) (tally[v.value.target] ??= []).push(v.player_id);
+      const max = Math.max(0, ...Object.values(tally).map((t) => t.length));
+      const top = Object.keys(tally).filter((t) => tally[t].length === max && max > 0);
+      const caught = top.includes(round.imposter);
+      if (caught) {
+        add(round.imposter, 0, 3, "Caught being the imposter");
+        (tally[round.imposter] ?? []).forEach((v) => add(v, 100, 0, "Spotted the imposter"));
+      } else {
+        ids.filter((id) => id !== round.imposter).forEach((id) => add(id, 0, 1, "Fooled by the imposter"));
+        add(round.imposter, 300, 0, "Undercover legend");
+      }
+      slowpokes.forEach((id) => add(id, 0, 1, "No clue"));
+      view.clues = inputs.map((x) => ({ pid: x.player_id, text: String(x.value?.text ?? "").trim().slice(0, 24) }));
+      view.tally = Object.entries(tally).map(([pid, voters]) => ({ pid, voters })).sort((a, b) => b.voters.length - a.voters.length);
+      view.caught = caught;
+      break;
+    }
+    case "drawful": {
+      const options = round.options ?? [];
+      const byKey = Object.fromEntries(options.map((o) => [o.key, { ...o, pickers: [] }]));
+      let spotted = 0;
+      for (const v of votes) {
+        const o = byKey[v.value?.target];
+        if (!o || o.pids.includes(v.player_id) || v.player_id === round.drawer) continue;
+        o.pickers.push(v.player_id);
+        if (o.truth) {
+          spotted++;
+          add(v.player_id, 200, 0, "Spotted it");
+          add(round.drawer, 100, 0, "Good drawing");
+        } else {
+          add(v.player_id, 0, 1, "Fooled!");
+          o.pids.forEach((liar) => add(liar, 100, 0, "Fooled someone"));
+        }
+      }
+      if (!round.hasDrawing) add(round.drawer, 0, 2, "Didn't draw anything");
+      else if (votes.length && !spotted) add(round.drawer, 0, 2, "Nobody got it");
+      const titled = new Set(subs.filter((x) => x.kind === "twist").map((x) => x.player_id));
+      if (round.hasDrawing) ids.filter((id) => id !== round.drawer && !titled.has(id)).forEach((id) => add(id, 0, 1, "No title"));
+      view.options = Object.values(byKey).sort((a, b) => Number(b.truth) - Number(a.truth) || b.pickers.length - a.pickers.length);
+      break;
+    }
+    case "hol": {
+      view.results = (round.qs ?? []).map((q) => {
+        const vs = subs.filter((x) => x.kind === `m${q.i}` && ids.includes(x.player_id));
+        const right = vs.filter((x) => x.value?.pick === q.answer).map((x) => x.player_id);
+        const wrong = vs.filter((x) => x.value?.pick !== q.answer).map((x) => x.player_id);
+        const answered = new Set(vs.map((x) => x.player_id));
+        right.forEach((id) => add(id, 100, 0, "Right"));
+        wrong.forEach((id) => add(id, 0, 1, "Wrong"));
+        ids.filter((id) => !answered.has(id)).forEach((id) => add(id, 0, 1, "Too slow"));
+        return { ...q, right, wrong };
+      });
       break;
     }
     case "hot": {

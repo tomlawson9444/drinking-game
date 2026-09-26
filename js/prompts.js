@@ -420,6 +420,86 @@ export const HOT_IDEAS = {
   ],
 };
 
+// ------------------------------------------------------------------ Imposter
+
+// Everyone but the imposter sees the word; the imposter only sees the category.
+export const IMPOSTER_WORDS = {
+  "Pub": ["Pork scratchings", "Fruit machine", "Beer garden", "Pub quiz", "Last orders", "Dartboard", "Jukebox", "Bar stool", "Pint glass", "Bouncer"],
+  "Night out": ["Kebab", "Taxi queue", "Dance floor", "Jägerbomb", "Hangover", "Nightclub toilets", "Stamp on your hand", "Photo booth", "Afters", "Bus home"],
+  "Holiday": ["Sunburn", "Passport", "Sun lounger", "Airport security", "Flip-flops", "All-inclusive", "Pool party", "Suitcase", "Sangria", "Duty free"],
+  "Food": ["Sunday roast", "Chip butty", "Scotch egg", "Pot Noodle", "Beans on toast", "Fish and chips", "Full English", "Sausage roll", "Trifle", "Curry"],
+  "TV": ["Love Island", "EastEnders", "Bake Off", "Gogglebox", "Strictly", "Match of the Day", "Coronation Street", "Only Fools and Horses", "Blue Peter", "The Office"],
+  "Jobs": ["Dentist", "Traffic warden", "Plumber", "Lollipop lady", "Bin man", "Estate agent", "Vicar", "Stripper", "Hairdresser", "Personal trainer"],
+  "Places": ["IKEA", "Wetherspoons", "Glastonbury", "Blackpool", "A&E", "Soft play", "Gym", "Butlin's", "Primark", "Driving test centre"],
+  "Animals": ["Seagull", "Pigeon", "Badger", "Goose", "Hedgehog", "Llama", "Squirrel", "Shark", "Sloth", "Crab"],
+  "Wedding": ["Best man's speech", "First dance", "Bouquet", "Wedding cake", "Confetti", "Stag do", "Mother-in-law", "Buffet", "Vows", "Honeymoon"],
+  "Sport": ["Darts", "Snooker", "Penalty shootout", "Offside", "Marathon", "Wimbledon", "Five-a-side", "Referee", "Boxing", "Golf"],
+  "Things in your bedroom": ["Alarm clock", "Duvet", "Wardrobe", "Phone charger", "Slippers", "Mirror", "Laundry pile", "Bedside drawer", "Pillow", "Dressing gown"],
+  "Christmas": ["Sprouts", "Crackers", "Secret Santa", "Mince pie", "Christmas jumper", "Advent calendar", "Mistletoe", "Boxing Day", "Tinsel", "Queen's speech"],
+};
+
+// ------------------------------------------------------------------ What is it? (draw & guess)
+
+// Secret things for the artist to draw. Everyone else invents fake titles for the drawing.
+export const DRAW_PROMPTS = {
+  mild: [
+    "A pigeon stealing a chip", "The Landlord on holiday", "A sheep at a rave", "A haunted Greggs",
+    "Your nan on a jet ski", "A goose in a wedding dress", "The world's saddest kebab", "A cat doing taxes",
+    "A pint with legs running away", "A snowman in a sauna", "A dog at a job interview", "A shark at the dentist",
+    "A hedgehog giving a TED talk", "A sausage roll in love", "The morning after a stag do", "A vicar on a skateboard",
+    "A llama in a traffic jam", "A potato's first date", "Santa's day off", "A bin bag with feelings",
+    "A crab in a nightclub", "A cow on a trampoline", "An angry croissant", "A seagull mugging a tourist",
+  ],
+  filthy: [
+    "A very awkward threesome", "The walk of shame", "A stripper at a funeral", "Your browser history",
+    "A sexy traffic cone", "A hot tub at 3am", "The world's worst Tinder date", "A lap dance from Santa",
+    "Morning glory", "A one-night stand's shoes", "Getting caught in the act", "A willy-shaped cake",
+    "An orgy of pigeons", "The disabled toilet at the club", "A hen do gone wrong", "Nudes with the flash on",
+  ],
+};
+
+// ------------------------------------------------------------------ Higher or Lower
+
+// Each: the thing, the number to beat, and the true answer ("higher" or "lower").
+export const HIGHER_LOWER = [
+  { q: "The Eiffel Tower's height", than: "300 metres", answer: "higher", fact: "330 m" },
+  { q: "The Elizabeth Tower (Big Ben)", than: "100 metres", answer: "lower", fact: "96 m" },
+  { q: "Bones in the adult human body", than: "200", answer: "higher", fact: "206" },
+  { q: "Height of Mount Everest", than: "9,000 metres", answer: "lower", fact: "8,849 m" },
+  { q: "Population of the UK", than: "60 million", answer: "higher", fact: "about 68 million" },
+  { q: "Countries in the EU", than: "30", answer: "lower", fact: "27" },
+  { q: "Year the first iPhone came out", than: "2005", answer: "higher", fact: "2007" },
+  { q: "Length of the Channel Tunnel", than: "40 km", answer: "higher", fact: "about 50 km" },
+  { q: "Teams in the Premier League", than: "22", answer: "lower", fact: "20" },
+  { q: "Keys on a standard piano", than: "90", answer: "lower", fact: "88" },
+  { q: "Legs on a spider", than: "6", answer: "higher", fact: "8" },
+  { q: "States in the USA", than: "48", answer: "higher", fact: "50" },
+  { q: "Squares on a chessboard", than: "60", answer: "higher", fact: "64" },
+  { q: "Strings on a violin", than: "5", answer: "lower", fact: "4" },
+  { q: "Water's boiling point in Fahrenheit", than: "200", answer: "higher", fact: "212 °F" },
+  { q: "Players in a rugby league team", than: "14", answer: "lower", fact: "13" },
+  { q: "Length of the Titanic", than: "300 metres", answer: "lower", fact: "269 m" },
+  { q: "Hearts an octopus has", than: "2", answer: "higher", fact: "3" },
+  { q: "Minutes for sunlight to reach Earth", than: "5", answer: "higher", fact: "about 8 minutes" },
+  { q: "Harry Potter books in the main series", than: "8", answer: "lower", fact: "7" },
+  { q: "The Beatles' UK number-one singles", than: "15", answer: "higher", fact: "17" },
+  { q: "Height of the Shard", than: "300 metres", answer: "higher", fact: "310 m" },
+  { q: "Age Queen Elizabeth II reached", than: "95", answer: "higher", fact: "96" },
+  { q: "Teeth in a full adult set", than: "30", answer: "higher", fact: "32" },
+  { q: "Year of the first Wimbledon", than: "1880", answer: "lower", fact: "1877" },
+  { q: "Litres in a UK gallon", than: "4", answer: "higher", fact: "about 4.5" },
+  { q: "Pints in a UK gallon", than: "10", answer: "lower", fact: "8" },
+  { q: "Days in a leap year", than: "365", answer: "higher", fact: "366" },
+  { q: "Players on a netball team on court", than: "8", answer: "lower", fact: "7" },
+  { q: "Year the NHS was founded", than: "1950", answer: "lower", fact: "1948" },
+  { q: "Stations on the London Underground", than: "250", answer: "higher", fact: "272" },
+  { q: "The highest possible darts checkout", than: "150", answer: "higher", fact: "170" },
+  { q: "The maximum snooker break (without free balls)", than: "150", answer: "lower", fact: "147" },
+  { q: "Paintings Van Gogh sold in his lifetime", than: "5", answer: "lower", fact: "just one, as far as we know" },
+  { q: "Minutes in a regulation football match", than: "80", answer: "higher", fact: "90" },
+  { q: "Height of Ben Nevis", than: "1,500 metres", answer: "lower", fact: "1,345 m" },
+];
+
 // ------------------------------------------------------------------ host lines
 
 // What The Landlord says. {name}, {winner}, {liar}, {thirsty}, {last} and {other} are
@@ -504,6 +584,26 @@ export const LINES = {
     "{winner} takes the belt. Everyone they beat, drink. Especially you, {name}.",
     "And your champion is {winner}. {name}, that answer went down faster than your standards.",
   ],
+  imposter_caught: [
+    "{name} was the imposter, and you lot sniffed them out. {name}, drink three. Lying suits you, but not that much.",
+    "Caught red-handed! {name}, you were the imposter. Three sips, and never become a spy.",
+  ],
+  imposter_escaped: [
+    "{name} was the imposter the whole time, and you voted out someone innocent. Everyone else, drink.",
+    "Well done, detectives. {name} fooled the lot of you. Everyone except {name}, drink.",
+  ],
+  drawful: [
+    "{name}, your drawing fooled nobody and confused everyone. Drink.",
+    "It was meant to be {answer}. It looked like a crime scene. Well done, everyone.",
+  ],
+  hol: [
+    "{name}, you got that wrong. Confidently wrong, which is the worst kind. Drink.",
+    "Higher, lower… {name}, you'd have been better flipping a coin. Drink.",
+  ],
+  buddy: [
+    "{name} has chained {buddy} as their drinking buddy. Whenever {name} drinks, {buddy} drinks. Till death, or closing time.",
+    "{buddy}, congratulations. You're now {name}'s drinking buddy. Every sip they take, you take. Romantic.",
+  ],
   hot: [
     "{name} is a liar, and the group has proved it. Drink.",
     "{name}, the jury says you're lying. The jury is also drunk, but still. Drink.",
@@ -570,6 +670,9 @@ export const PARTY_GAMES = [
   { type: "sti", blurb: "Answer innocently, then someone reveals where it was 'really posted'." },
   { type: "brawl", blurb: "Everyone answers, then answers fight in a knockout bracket.", min: 3 },
   { type: "tee", blurb: "Draw and write slogans on your phone; T-shirts fight to the death.", min: 3 },
+  { type: "imposter", blurb: "Everyone knows the secret word except the imposter. Clue, then vote them out.", min: 3 },
+  { type: "drawful", blurb: "One player draws a secret prompt; everyone else invents fake titles. Spot the real one.", min: 3 },
+  { type: "hol", blurb: "Three rapid-fire higher-or-lower questions. Wrong answers drink." },
   { type: "hot", blurb: "One mate in the hot seat; everyone asks a question, you vote truth or lie.", min: 3 },
   { type: "wheel", blurb: "The TV spins the wheel: victims, double points, waterfalls, pity points…" },
   { type: "social", blurb: "A quick rule for the whole room — waterfalls, categories, thumb master." },
@@ -586,6 +689,10 @@ export const ROUND_INFO = {
   roles: { title: "Who's Who", emoji: "🎭", rules: "Sort your mates into the set. Agree with the group for points. Whoever gets the drinking role drinks 2." },
   brawl: { title: "Pub Brawl", emoji: "🥊", rules: "Write an answer, then they fight in a knockout bracket. Every answer knocked out drinks 1. Champion takes 500." },
   tee: { title: "Tee K.O.", emoji: "👕", rules: "Draw a picture and write a slogan. Then build a shirt from your mates' work — shirts fight to the death. Knocked-out shirts drink 1." },
+  imposter: { title: "Imposter", emoji: "🕵️", rules: "Everyone gets the same secret word — except the imposter. Type a one-word clue, then vote out the imposter. Caught: imposter drinks 3. Escaped: everyone else drinks." },
+  drawful: { title: "What is it?", emoji: "🎨", rules: "One player draws a secret prompt. Everyone else writes a fake title, then spot the real one. Fooled = drink 1. Nobody gets it = the artist drinks." },
+  hol: { title: "Higher or Lower", emoji: "⬆️⬇️", rules: "Three quick questions. Tap higher or lower. Every wrong answer is a sip; every right one is 100 points." },
+  buddy: { title: "Drinking Buddy", emoji: "🤝", rules: "The round winner chooses a drinking buddy." },
   rule: { title: "Rule Maker", emoji: "📜", rules: "The best player of the last round makes a house rule." },
   hot: { title: "Hot Seat", emoji: "🔥", rules: "One player's in the hot seat. Everyone writes them a question, they answer out loud, you vote truth or lie. Liars drink 2; refusing drinks 3." },
   wheel: { title: "Wheel of Doom", emoji: "🎡", rules: "The wheel decides your fate. Pray." },

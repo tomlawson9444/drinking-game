@@ -4,7 +4,7 @@ import { ROUND_INFO } from "./prompts.js";
 import { norm, fillCard, isBlank } from "./logic.js";
 import { HOT_IDEAS } from "./prompts.js";
 import { createGM } from "./gm.js";
-import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf } from "./ui.js";
+import { $, esc, avatar, chip, sipsText, timerBar, toast, shirt, drawingOf, safeImg } from "./ui.js";
 
 const PENS = ["#111111", "#ff4f79", "#ffb400", "#3ddc97", "#4cc9f0", "#b388ff", "#8b4513", "#ffffff"];
 
@@ -61,6 +61,8 @@ export function startPlayer(app, me, onLeave) {
       return;
     }
     if (act === "rule-pick") return send("rule", { text: live.room.state.cur.options[+val] });
+    if (act === "hol") return send(`m${live.room.state.cur.q.i}`, { pick: val });
+    if (act === "buddy-pick") return send("buddy", { target: val });
     if (act === "snitch") {
       scratch.snitching = !scratch.snitching;
       render();
@@ -134,6 +136,12 @@ export function startPlayer(app, me, onLeave) {
     }
   });
   app.addEventListener("submit", (e) => {
+    if (e.target.id === "draw-form") {
+      e.preventDefault();
+      const sc = fresh(live.room.round);
+      if (!sc.img) return toast("Draw something first! 🎨");
+      return send("input", { img: sc.img });
+    }
     if (e.target.id === "rule-form") {
       e.preventDefault();
       const text = $("#rule-text").value.trim();
@@ -160,6 +168,7 @@ export function startPlayer(app, me, onLeave) {
     if (!text) return toast("Write something funny!");
     const cur = live.room?.state?.cur;
     if (cur?.type === "fib" && norm(text) === norm(cur.truth)) return toast("That's actually the truth! Lie better. 🤥");
+    if (cur?.type === "drawful" && norm(text) === norm(cur.prompt)) return toast("Ha — that's actually what it is! Lie better. 🤥");
     draft = "";
     send(live.room.phase === "twist" ? "twist" : "input", { text });
   });
@@ -301,6 +310,37 @@ export function startPlayer(app, me, onLeave) {
           body = timer + lockedIn();
           break;
         }
+        if (cur.type === "imposter") {
+          const imp = cur.imposter === playerId;
+          if (mySub("input")) {
+            body = timer + lockedIn("Clue in! 🕵️");
+            break;
+          }
+          body = `${timer}${imp
+            ? `<div class="secret imposter pop"><div class="big-emoji">🕵️</div><h2>You're the IMPOSTER!</h2><p>Category: <b>${esc(cur.prompt)}</b></p><p class="muted">You don't know the word. Blend in.</p></div>`
+            : `<div class="secret pop"><p class="muted">Category: ${esc(cur.prompt)}</p><p>The secret word is</p><h1>${esc(cur.word)}</h1><p class="muted">One of you doesn't know it. Don't make it too obvious.</p></div>`}
+            <form id="quip-form" class="quip-form"><input id="quip-text" class="slogan-input" maxlength="24" placeholder="Your one-word clue" autocomplete="off">
+            <button class="btn big" type="submit">Give clue</button></form>`;
+          break;
+        }
+        if (cur.type === "drawful") {
+          const drawer = live.players.find((p) => p.id === cur.drawer);
+          if (cur.drawer !== playerId) {
+            body = timer + `<div class="locked pop"><div class="big-emoji">🎨</div><h2>${esc(drawer?.name ?? "Someone")} is drawing…</h2><p class="muted">No peeking at their phone.</p></div>`;
+            break;
+          }
+          if (mySub("input")) {
+            body = timer + lockedIn("Masterpiece submitted! 🖼️");
+            break;
+          }
+          const sc = fresh(room.round);
+          body = `${timer}<p class="muted center-text">Draw this — don't write words!</p><p class="prompt-sm">🤫 ${esc(cur.prompt)}</p>
+            <canvas id="tee-canvas" class="tee-canvas" width="240" height="240"></canvas>
+            <div class="pens">${PENS.map((c) => `<button class="pen ${sc.pen === c ? "on" : ""}" data-act="pen" data-val="${c}" style="--c:${c}" aria-label="${c === "#ffffff" ? "Eraser" : "Pen colour"}">${c === "#ffffff" ? "🧽" : ""}</button>`).join("")}
+              <button class="btn ghost sm" data-act="pen-clear">Clear</button></div>
+            <form id="draw-form" class="quip-form"><button class="btn big" type="submit">Done 🖼️</button></form>`;
+          break;
+        }
         if (cur.type === "hot") {
           const victim = live.players.find((p) => p.id === cur.victim);
           if (cur.victim === playerId) {
@@ -381,6 +421,28 @@ export function startPlayer(app, me, onLeave) {
         break;
       }
 
+      case "hol": {
+        const timer = timerBar(st.deadline, st.span ?? 12);
+        if (mySub(`m${cur.q.i}`)) body = timer + lockedIn("Locked in! ⬆️⬇️");
+        else
+          body = `${timer}<p class="muted center-text">Question ${cur.q.i + 1} of ${cur.qs.length}</p><p class="prompt-sm">${esc(cur.q.q)}</p>
+            <p class="center-text">Higher or lower than <b>${esc(cur.q.than)}</b>?</p>
+            <div class="choices two"><button class="choice cool" data-act="hol" data-val="higher">⬆️ Higher</button>
+            <button class="choice hot" data-act="hol" data-val="lower">⬇️ Lower</button></div>`;
+        break;
+      }
+
+      case "buddy": {
+        const timer = timerBar(st.deadline, st.span ?? 30);
+        const maker = live.players.find((p) => p.id === cur.maker);
+        if (cur.maker !== playerId) body = timer + `<div class="locked pop"><div class="big-emoji">🤝</div><h2>${esc(maker?.name ?? "Someone")} is choosing a drinking buddy…</h2><p class="muted">Look innocent.</p></div>`;
+        else if (mySub("buddy")) body = timer + lockedIn("Buddy chained! 🤝");
+        else
+          body = `${timer}<h2 class="center-text">🤝 You won the buddy round!</h2><p class="muted center-text">Pick a drinking buddy. Whenever you drink, they drink — all game.</p>
+            <div class="choices">${live.players.filter((p) => p.id !== playerId).map((p) => `<button class="choice" data-act="buddy-pick" data-val="${p.id}" style="--c:${esc(p.color)}">${avatar(p)}${esc(p.name)}</button>`).join("")}</div>`;
+        break;
+      }
+
       case "hotq": {
         const timer = timerBar(st.deadline, st.span ?? 40);
         const kind = `m${cur.q.i}`;
@@ -412,6 +474,18 @@ export function startPlayer(app, me, onLeave) {
 
       case "twist": {
         const timer = timerBar(st.deadline, st.span ?? 45);
+        if (cur.type === "drawful") {
+          if (cur.drawer === playerId) body = timer + `<div class="locked pop"><div class="big-emoji">🎨</div><h2>They're writing fake titles for your masterpiece…</h2></div>`;
+          else if (mySub("twist")) body = timer + lockedIn("Fake title in! 🤥");
+          else {
+            const img = safeImg(live.subs.find((x) => x.kind === "input" && x.player_id === cur.drawer)?.value?.img);
+            body = `${timer}${img ? `<div class="drawing sm"><img src="${img}" alt="The drawing"></div>` : ""}
+              <p class="prompt-sm">What is it? Write a fake title to fool everyone.</p>
+              <form id="quip-form" class="quip-form"><input id="quip-text" class="slogan-input" maxlength="60" placeholder="A convincing title…" autocomplete="off">
+              <button class="btn big" type="submit">Submit 🤥</button></form>`;
+          }
+          break;
+        }
         const t = cur.twists?.[playerId];
         if (mySub("twist")) body = timer + lockedIn("Twisted! 😈");
         else if (!t) body = timer + lockedIn("Sit tight…");
@@ -475,6 +549,22 @@ export function startPlayer(app, me, onLeave) {
               <div class="choices">${o.slogans.map((pid) => `<button class="choice pickable ${mk.slogan === pid ? "on" : ""}" data-act="make-slogan" data-val="${pid}">${esc(sloganOf(pid))}</button>`).join("")}</div>
               ${mk.img && mk.slogan ? `<p class="muted center-text">Preview:</p>${shirt(drawingOf(live.subs, mk.img), sloganOf(mk.slogan))}` : ""}
               <button class="btn big" data-act="make-done">Print it 👕</button>`;
+          break;
+        }
+        if (cur.type === "imposter") {
+          if (mySub("vote")) body = timer + lockedIn("Accusation made! 🕵️");
+          else
+            body = `${timer}<p class="prompt-sm">Who's the imposter? 🕵️</p><p class="muted center-text">Check the clues on the TV.</p>
+              <div class="choices">${live.players.filter((p) => p.id !== playerId).map((p) => `<button class="choice" data-act="vote" data-val="${p.id}" style="--c:${esc(p.color)}">${avatar(p)}${esc(p.name)}</button>`).join("")}</div>`;
+          break;
+        }
+        if (cur.type === "drawful") {
+          const choices = (cur.options ?? []).filter((o) => !o.pids.includes(playerId));
+          if (cur.drawer === playerId) body = timer + `<div class="locked pop"><div class="big-emoji">🎨</div><h2>They're guessing your masterpiece…</h2></div>`;
+          else if (mySub("vote")) body = timer + lockedIn("Guess locked in! 🎨");
+          else
+            body = `${timer}<p class="prompt-sm">Which is the REAL title?</p>
+              <div class="choices">${choices.map((o) => `<button class="choice answer-choice" data-act="vote" data-val="${esc(o.key)}">${esc(o.text)}</button>`).join("")}</div>`;
           break;
         }
         if (cur.type === "sti") {
